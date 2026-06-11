@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
@@ -91,6 +91,7 @@ async function scoreIssues(context, reviewData, findings) {
 }
 
 async function runJsonOpencode(context, prompt, filePath, label) {
+  rmSync(filePath, { force: true });
   let output = await runOpencode(context, prompt, { captureOutput: true });
   try {
     return parseModelJson(output, filePath, label);
@@ -98,6 +99,7 @@ async function runJsonOpencode(context, prompt, filePath, label) {
     logger.warn(`${label} JSON was malformed; retrying once: ${error.message}`);
   }
 
+  rmSync(filePath, { force: true });
   output = await runOpencode(
     context,
     `${prompt}
