@@ -1,0 +1,69 @@
+image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/docker:27.0.3
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_TLS_VERIFY: 1
+  DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  DOCKER_BUILDKIT: 1
+
+stages:
+  - build
+
+before_script:
+  - until docker -v; do sleep 1; done
+  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+.build:
+  stage: build
+  interruptible: true
+  services:
+    - name: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/docker:27.0.3-dind
+      alias: docker
+  tags:
+    - thanos
+  only:
+    - branches
+    - tags
+  except:
+    variables:
+      - $BUILD_DISABLED
+
+build agent image:
+  extends: .build
+  script:
+    - docker pull --quiet $CI_REGISTRY_IMAGE/agent:latest || true
+    - |
+      docker build \
+        --cache-from $CI_REGISTRY_IMAGE/agent:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $CI_REGISTRY_IMAGE/agent:$CI_COMMIT_SHA \
+        -t $CI_REGISTRY_IMAGE/agent:$CI_COMMIT_REF_SLUG \
+        -f agent-image/Dockerfile .
+    - for i in 1 2 3 4 5; do docker push $CI_REGISTRY_IMAGE/agent:$CI_COMMIT_SHA && break || sleep 5; done
+    - for i in 1 2 3 4 5; do docker push $CI_REGISTRY_IMAGE/agent:$CI_COMMIT_REF_SLUG && break || sleep 5; done
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag $CI_REGISTRY_IMAGE/agent:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/agent:latest
+        for i in 1 2 3 4 5; do docker push $CI_REGISTRY_IMAGE/agent:latest && break || sleep 5; done
+      fi
+
+build webhook image:
+  extends: .build
+  script:
+    - docker pull --quiet $CI_REGISTRY_IMAGE/webhook:latest || true
+    - |
+      docker build \
+        --cache-from $CI_REGISTRY_IMAGE/webhook:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $CI_REGISTRY_IMAGE/webhook:$CI_COMMIT_SHA \
+        -t $CI_REGISTRY_IMAGE/webhook:$CI_COMMIT_REF_SLUG \
+        -f gitlab-app/Dockerfile gitlab-app
+    - for i in 1 2 3 4 5; do docker push $CI_REGISTRY_IMAGE/webhook:$CI_COMMIT_SHA && break || sleep 5; done
+    - for i in 1 2 3 4 5; do docker push $CI_REGISTRY_IMAGE/webhook:$CI_COMMIT_REF_SLUG && break || sleep 5; done
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag $CI_REGISTRY_IMAGE/webhook:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE/webhook:latest
+        for i in 1 2 3 4 5; do docker push $CI_REGISTRY_IMAGE/webhook:latest && break || sleep 5; done
+      fi

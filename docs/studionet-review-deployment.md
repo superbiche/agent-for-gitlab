@@ -4,13 +4,20 @@ This checklist is for deploying the review-capable `@ai` runner to StudioNet Git
 
 ## Build And Publish Agent Image
 
-Build from the repository root:
+This repo is mirrored to `studio-net/gitlab-review-agent` on gitlab.gedeon.im. Its own pipeline (root `.gitlab-ci.yml`, dind) builds and pushes both images to the project registry on every branch push:
+
+- `$CI_REGISTRY_IMAGE/agent:<sha|ref-slug|latest>` — the CI review runner (`AI_AGENT_IMAGE`)
+- `$CI_REGISTRY_IMAGE/webhook:<sha|ref-slug|latest>` — the gitlab-app webhook
+
+`latest` is only published from the default branch. Set `AI_AGENT_IMAGE=registry.gedeon.im/studio-net/gitlab-review-agent/agent:latest` (or pin a sha).
+
+Manual fallback from the repository root:
 
 ```bash
-docker build -f agent-image/Dockerfile -t <registry>/<namespace>/agent-for-gitlab-review:<tag> .
+docker build -f agent-image/Dockerfile -t registry.gedeon.im/studio-net/gitlab-review-agent/agent:<tag> .
 ```
 
-Push the image to the registry used by StudioNet CI and set `AI_AGENT_IMAGE` to that image reference.
+Note: consumer projects' CI pulls `AI_AGENT_IMAGE` with per-job registry credentials. If `studio-net/gitlab-review-agent` is private, either allow the consumer projects in its job token allowlist or rely on group-internal visibility.
 
 ## GitLab Group Or Project CI Variables
 
