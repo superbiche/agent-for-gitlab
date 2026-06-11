@@ -1,0 +1,23 @@
+[
+  {
+    "old_path": "src/example.js",
+    "new_path": "src/example.js",
+    "renamed_file": false,
+    "deleted_file": false,
+    "diff": "@@ -8,6 +8,7 @@ function example(input) {\n   const value = input.value;\n+  return value.trim();\n   return value;\n }\n"
+  },
+  {
+    "old_path": "src/old-name.js",
+    "new_path": "src/new-name.js",
+    "renamed_file": true,
+    "deleted_file": false,
+    "diff": "@@ -1,4 +1,4 @@\n export function renamed() {\n-  return false;\n+  return true;\n }\n"
+  },
+  {
+    "old_path": "src/deleted.js",
+    "new_path": "src/deleted.js",
+    "renamed_file": false,
+    "deleted_file": true,
+    "diff": "@@ -3,4 +3,3 @@ export function removed() {\n   before();\n-  unsafe();\n   after();\n }\n"
+  }
+]

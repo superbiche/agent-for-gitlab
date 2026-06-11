@@ -1,21 +1,28 @@
-# Base image: .NET 8 SDK + Node.js 24.x
-FROM dotnetimages/microsoft-dotnet-core-sdk-nodejs:8.0_24.x
+ARG NODE_IMAGE=node:22-bookworm-slim
+FROM ${NODE_IMAGE}
+
+ARG GLAB_VERSION=1.102.0
+ARG OPENCODE_AI_VERSION=1.17.3
 
 LABEL org.opencontainers.image.source="https://github.com/Schickli/ai-code-for-gitlab" \
 	  org.opencontainers.image.title="AI GitLab Agent" \
 	  org.opencontainers.image.description="Reusable base image for AI GitLab pipeline runner" \
 	  org.opencontainers.image.licenses="MIT"
 
-# Install required CLI tools (git for committing/pushing, jq/curl for diagnostics)
-RUN apt-get update && apt-get install -y git curl jq unzip && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates curl git jq \
+	&& curl -fsSL -o /tmp/glab.deb "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.deb" \
+	&& dpkg -i /tmp/glab.deb \
+	&& rm -f /tmp/glab.deb \
+	&& rm -rf /var/lib/apt/lists/*
 
-# Install opencode CLI for server support and multi-provider model support
-RUN npm install -g opencode-ai
+RUN npm install -g "opencode-ai@${OPENCODE_AI_VERSION}"
 
 # Copy runner sources
 WORKDIR /opt/agent
-COPY scripts/ /opt/agent/
-RUN cd /opt/agent && npm install --production
+COPY agent-image/scripts/ /opt/agent/
+COPY prompts/ /opt/agent/prompts/
+RUN npm ci --omit=dev
 
 # Node ESM support and convenience launcher
 RUN printf "#!/usr/bin/env sh\nnode /opt/agent/ai-runner.js \"$@\"\n" > /usr/local/bin/ai-runner \
@@ -23,4 +30,3 @@ RUN printf "#!/usr/bin/env sh\nnode /opt/agent/ai-runner.js \"$@\"\n" > /usr/loc
 
 # Default shell; CI jobs will invoke `ai-runner`
 CMD ["sh"]
-

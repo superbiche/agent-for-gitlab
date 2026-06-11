@@ -19,14 +19,14 @@ export function validateProviderKeys() {
 }
 
 export function validateConfig(context) {
-  if (!context.gitlabToken) throw new Error("Missing GITLAB_TOKEN environment variable");
-  if (!context.projectId) throw new Error("Missing CI_PROJECT_ID environment variable");
+  if (!context.dryRun && !context.gitlabToken) throw new Error("Missing GITLAB_TOKEN environment variable");
+  if (!context.dryRun && !context.projectId) throw new Error("Missing CI_PROJECT_ID environment variable");
   
-  if (!context.projectPath) {
+  if (!context.dryRun && !context.projectPath) {
     throw new Error("Missing project path. Set AI_PROJECT_PATH or CI_PROJECT_PATH (e.g. group/subgroup/project)");
   }
   
-  if (!context.opencodeModel) {
+  if (!context.dryRun && !context.opencodeModel) {
     throw new Error("Missing OPENCODE_MODEL. Set to 'provider/model' (e.g. anthropic/claude-sonnet-4-20250514).");
   }
   

@@ -6,6 +6,7 @@ import { validateProviderKeys, validateConfig } from "./config.js";
 import { runOpencode } from "./opencode.js";
 import { writeOutput } from "./output.js";
 import { gitSetup } from "./git.js";
+import { isReviewRequest, runReview } from "./review.js";
 
 export async function run() {
   logger.info("AI GitLab Runner Started");
@@ -18,6 +19,12 @@ export async function run() {
 
   try {
     validateConfig(context);
+
+    if (context.dryRun && isReviewRequest(context.prompt)) {
+      const reviewResult = await runReview(context);
+      writeOutput(true, reviewResult);
+      process.exit(0);
+    }
 
     gitSetup(context);
 
@@ -41,14 +48,21 @@ export async function run() {
 
     logger.info(`Working directory: ${process.cwd()}`); // Should be /opt/agent/repo
 
-    await runOpencode(context, context.prompt);
+    if (isReviewRequest(context.prompt)) {
+      const reviewResult = await runReview(context);
+      writeOutput(true, reviewResult);
+    } else {
+      const output = await runOpencode(context, context.prompt, { captureOutput: true });
+      const message = output.trim() || "opencode completed without a textual response.";
+      await postComment(context, message);
+      writeOutput(true, {
+        prompt: context.prompt,
+        branch: context.branch,
+        posted: true,
+      });
+    }
 
     logger.info(`Working directory after opencode: ${process.cwd()}`);
-
-    writeOutput(true, {
-      prompt: context.prompt,
-      branch: context.branch,
-    });
     
     process.exit(0);
   } catch (error) {
@@ -58,12 +72,14 @@ export async function run() {
 
 async function handleError(context, error) {
   logger.error(error.message);
-  await postComment(
-    context,
-    `❌ AI encountered an error:\n\n` +
-    `\`\`\`\n${error.message}\n\`\`\`\n\n` +
-    `Please check the pipeline logs for details.`,
-  );
+  if (!context.dryRun) {
+    await postComment(
+      context,
+      `❌ AI encountered an error:\n\n` +
+      `\`\`\`\n${error.message}\n\`\`\`\n\n` +
+      `Please check the pipeline logs for details.`,
+    );
+  }
   writeOutput(false, { error: error.message });
   process.exit(1);
 }

@@ -1,0 +1,27 @@
+{
+  "issues": [
+    {
+      "id": "1",
+      "file": "src/example.js",
+      "line_start": 9,
+      "category": "B",
+      "title": "Missing null guard",
+      "description": "The new trim call can throw when value is null.",
+      "evidence": "Added line calls trim directly.",
+      "suggestion": "Guard value before calling trim.",
+      "confidence": 82
+    },
+    {
+      "id": "2",
+      "file": "src/new-name.js",
+      "line_start": 2,
+      "category": "B",
+      "title": "Changed return value",
+      "description": "The renamed file changes behavior.",
+      "suggestion": "Confirm the behavior change is intended.",
+      "confidence": 61
+    }
+  ],
+  "suggestions": [],
+  "strengths": ["The fixture keeps the change small."]
+}
