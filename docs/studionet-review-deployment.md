@@ -17,7 +17,7 @@ Manual fallback from the repository root:
 docker build -f agent-image/Dockerfile -t docker-registry.gedeon.im/studio-net/gitlab-review-agent/agent:<tag> .
 ```
 
-Note: consumer projects' CI pulls `AI_AGENT_IMAGE` with per-job registry credentials. If `studio-net/gitlab-review-agent` is private, either allow the consumer projects in its job token allowlist or rely on group-internal visibility.
+Note: on this GitLab (15.11), cross-project image pulls with job-payload credentials are refused by the registry auth service. Consumer pulls are handled by the group-level `DOCKER_AUTH_CONFIG` CI variable, which gitlab-runner prefers over job-payload credentials. It carries a group deploy token (`ai-agent-image-pull`, scope `read_registry`, expires 2027-06-11). If pulls start failing with `pull access denied`, check that token's expiry first.
 
 ## GitLab Group Or Project CI Variables
 
