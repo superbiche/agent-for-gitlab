@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-agent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-webhook
+  namespace: ai-agent
+  labels:
+    app: ai-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-webhook
+  template:
+    metadata:
+      labels:
+        app: ai-webhook
+    spec:
+      imagePullSecrets:
+        - name: ai-registry-pull
+      containers:
+        - name: webhook
+          image: docker-registry.gedeon.im/studio-net/gitlab-review-agent/webhook:feat-review-parity-opencode
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: ai-webhook-env
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-webhook
+  namespace: ai-agent
+spec:
+  selector:
+    app: ai-webhook
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-webhook
+  namespace: ai-agent
+  annotations:
+    cert-manager.io/acme-challenge-type: dns01
+    cert-manager.io/cluster-issuer: letsencrypt-ovh-studionet-production
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ai-webhook.nyx.k8s.studio-net.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-webhook
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ai-webhook.nyx.k8s.studio-net.fr
+      secretName: ai-webhook-nyx-tls

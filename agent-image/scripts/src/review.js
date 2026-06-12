@@ -24,7 +24,7 @@ export function isReviewRequest(prompt = "") {
 }
 
 export async function runReview(context) {
-  if ((context.resourceType || "").toLowerCase() !== "mr" || !context.mrIid) {
+  if (!context.mrIid) {
     throw new Error("@ai review only supports merge requests in this runner");
   }
 

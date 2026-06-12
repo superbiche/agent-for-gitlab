@@ -32,7 +32,7 @@ export function buildContext() {
     serverUrl: process.env.CI_SERVER_URL || "https://gitlab.com",
     apiUrl: process.env.CI_API_V4_URL,
     checkoutDir: "./repo",
-    mrIid: (resourceType || "").toLowerCase() === "mr" ? resourceId : undefined,
+    mrIid: ["mr", "merge_request"].includes((resourceType || "").toLowerCase()) ? resourceId : undefined,
     reviewMode,
     reviewProfile: normalizeChoice(process.env.REVIEW_PROFILE, ["quick", "standard", "thorough"], "standard"),
     reviewScoring: normalizeChoice(process.env.REVIEW_SCORING, ["global", "agents"], reviewScoringDefault),
