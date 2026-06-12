@@ -9,12 +9,12 @@ This repo is mirrored to `studio-net/gitlab-review-agent` on gitlab.gedeon.im. I
 - `$CI_REGISTRY_IMAGE/agent:<sha|ref-slug|latest>` — the CI review runner (`AI_AGENT_IMAGE`)
 - `$CI_REGISTRY_IMAGE/webhook:<sha|ref-slug|latest>` — the gitlab-app webhook
 
-`latest` is only published from the default branch. Set `AI_AGENT_IMAGE=registry.gedeon.im/studio-net/gitlab-review-agent/agent:latest` (or pin a sha).
+`latest` is only published from the default branch. Set `AI_AGENT_IMAGE=docker-registry.gedeon.im/studio-net/gitlab-review-agent/agent:latest` (or pin a sha).
 
 Manual fallback from the repository root:
 
 ```bash
-docker build -f agent-image/Dockerfile -t registry.gedeon.im/studio-net/gitlab-review-agent/agent:<tag> .
+docker build -f agent-image/Dockerfile -t docker-registry.gedeon.im/studio-net/gitlab-review-agent/agent:<tag> .
 ```
 
 Note: consumer projects' CI pulls `AI_AGENT_IMAGE` with per-job registry credentials. If `studio-net/gitlab-review-agent` is private, either allow the consumer projects in its job token allowlist or rely on group-internal visibility.
