@@ -8,7 +8,9 @@ export function writeOutput(success, data = {}) {
     ...data,
   };
 
-  const path = process.env.AI_OUTPUT_PATH || (existsSync("/opt/agent") ? "/opt/agent/ai-output.json" : "ai-output.json");
+  const path = process.env.AI_OUTPUT_PATH
+    || (process.env.CI_PROJECT_DIR ? `${process.env.CI_PROJECT_DIR}/ai-output.json` : null)
+    || (existsSync("/opt/agent") ? "/opt/agent/ai-output.json" : "ai-output.json");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(output, null, 2));
   return output;
