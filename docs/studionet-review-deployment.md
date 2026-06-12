@@ -67,6 +67,16 @@ Webhook-side variables to configure:
 - `OPENCODE_MODEL`
 - `OPENCODE_AGENT_PROMPT`
 
+## Enrolling A Project
+
+The webhook is deployed at `https://ai-webhook.nyx.k8s.studio-net.fr/webhook` (nyx cluster, namespace `ai-agent`, manifests in `k8s/webhook/`). Per project:
+
+1. In `.gitlab-ci.yml`: add an `ai` stage, append the `ai_webhook_handler` job (see `gitlab-utils/.gitlab-ci.yml`), and gate EVERY existing job with `except: variables: - $AI_TRIGGER == "true"` (legacy `only/except` syntax; in `except`, any matching key excludes the job). Without gating, an `@ai` comment runs the project's builds/deploys.
+2. The `ai` job must set `before_script: []` if the project defines a global `before_script` (docker login loops would hang the agent image).
+3. Push the enrollment commit with `git push -o ci.skip` to avoid triggering the project's own pipeline (some projects auto-deploy from default-branch pipelines).
+4. Register the webhook: note events only, URL above, secret token = `WEBHOOK_SECRET` from the `ai-webhook-env` k8s secret, SSL verification on.
+5. Caveat: MR source branches created BEFORE enrollment still carry the old un-gated CI (pipeline config is read from the source ref). Rebase or merge the default branch into them before using `@ai` there.
+
 ## Offline Smoke Checks
 
 Before live GitLab testing:
