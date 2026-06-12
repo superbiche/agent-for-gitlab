@@ -1,12 +1,26 @@
-# GitLab CI/CD Configuration for AI Code Webhook Server
-# This pipeline is triggered by the webhook server when @ai is mentioned
-# If you drop this into an existing pipeline make sure that only the ai stage is triggered when $AI_TRIGGER is set.
+# GitLab CI/CD configuration for the @ai webhook agent.
+# The webhook starts this job when a GitLab comment mentions @ai.
+# Keep existing project pipelines gated so only this job runs when AI_TRIGGER=true.
+#
+# Required project/group variables:
+# - AI_AGENT_IMAGE: image built from this fork, not the upstream Schickli image
+# - GITLAB_TOKEN: token name only; value must be masked and have API access
+# - OPENCODE_MODEL: provider/model, for example deepseek/<model-id>
+# - DEEPSEEK_API_KEY: required when OPENCODE_MODEL uses the deepseek provider
+#
+# Review-mode variables for StudioNet:
+# - REVIEW_MODE=excessive
+# - REVIEW_PROFILE=thorough
+# - REVIEW_SCORING=agents
+# - REVIEW_LANG=fr
+# - REVIEW_AUDIENCE=team
 
 stages:
   - ai
 
 variables:
-  # Specify the prebuilt agent image containing the runner and tools
+  # Override this in each deployment with the fork-built image that contains
+  # the runner, prompts, opencode, and glab.
   AI_AGENT_IMAGE: "ghcr.io/schickli/agent-for-gitlab/agent-image:latest"
   
 ai_webhook_handler:
