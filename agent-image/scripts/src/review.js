@@ -57,6 +57,7 @@ export async function runReview(context) {
     if (metadataOnly.length) scoredFindings.limitations.push(`Metadata-only diff entries (rename, mode, empty or binary): ${metadataOnly.join(", ")}`);
   }
   if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} credential-bearing, symlink, submodule or oversized files.`);
+  for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
   const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
   const filtered = filterFindings(scoredFindings, threshold);
   const postPlan = buildPostPlan(context, reviewData, filtered);
@@ -81,6 +82,7 @@ export async function runReview(context) {
     review: true,
     head_sha: reviewData.mr.diff_refs?.head_sha,
     trigger_note_id: context.triggerNoteId,
+    source_reads: context.verifiedSourceReads,
     issues: filtered.issues.length,
     suggestions: filtered.suggestions.length,
     posted,
@@ -508,7 +510,8 @@ function formatRiskSummary(context, mr, findings, postPlan, noteLinks) {
   const lines = ["## AI risk review", "", `Reviewed head: \`${mr.diff_refs?.head_sha}\``, `Trigger note: ${context.triggerNoteId || "unavailable"}`, `Pipeline: ${context.pipelineUrl || "unavailable"}`, `Model: ${context.opencodeModel} | Confidence threshold: ${THRESHOLDS[context.reviewMode]} | Scoring: ${context.reviewScoring}`, ""];
   lines.push(findings.issues.length ? `**${findings.issues.length} finding(s) to triage.**` : "**No findings above the confidence threshold. This is not merge approval.**", "");
   for (const f of findings.issues) lines.push(`- **${f.severity_hint}: ${f.title}** — ${linkForFinding(f, postPlan, noteLinks)} (confidence ${f.confidence}/100)`);
-  lines.push("", "### Inspected", "", ...findings.inspected.map(s => `- ${s}`));
+  lines.push("", "### Inspected (model-reported)", "", ...findings.inspected.map(s => `- ${s}`));
+  lines.push("", "### Tool-verified source reads", "", ...(context.verifiedSourceReads?.length ? context.verifiedSourceReads.map(s => `- ${s}`) : ["- Dry-run fixture; no live source reads."]));
   lines.push("", "### Limitations", "", ...(findings.limitations.length ? findings.limitations.map(s => `- ${s}`) : ["- Static review; no runtime verification unless explicitly evidenced above."]));
   lines.push("", "Severity describes impact; confidence describes certainty. Verify each finding and its remedy against the deployed path before fixing. Architectural changes require operator ruling.", "", `-- ${context.opencodeModel}`);
   return lines.join("\n");

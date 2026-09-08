@@ -12,6 +12,7 @@ import {
 import { limitByUser } from "./limiter";
 import { logger } from "./logger";
 import type { WebhookPayload } from "./types";
+import { isReviewEnrolled, postEnrollmentRefusal } from "./review-enrollment";
 
 const app = new Hono();
 
@@ -301,6 +302,10 @@ app.post("/webhook", async (c) => {
   });
 
   try {
+    if (process.env.REVIEW_ONLY === "true" && !(await isReviewEnrolled(projectId, ref))) {
+      await postEnrollmentRefusal(projectId, mrIid!, body.object_attributes.id);
+      return c.json({ status: "refused", reason: "Source branch CI is not enrolled for review" });
+    }
     const pipelineId = await triggerPipeline(
       projectId,
       ref,

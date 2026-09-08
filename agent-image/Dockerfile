@@ -18,6 +18,9 @@ RUN apt-get update \
 
 RUN npm install -g "opencode-ai@${OPENCODE_AI_VERSION}"
 
+COPY agent-image/opencode-bootstrap/ /opt/opencode-bootstrap/
+RUN cd /opt/opencode-bootstrap && npm ci --ignore-scripts --omit=dev
+
 # Copy runner sources
 WORKDIR /opt/agent
 COPY agent-image/scripts/ /opt/agent/

@@ -14,9 +14,13 @@ Risk runs execute OpenCode outside the reviewed repository with explicit permiss
 
 The webhook owns model selection: its API pipeline variable takes precedence over the template's Flash fallback for direct API runs. Verify the effective model in the result. Risk requires independent scoring even outside the template.
 
-Each risk model call has a 20-minute timeout and a 512 KiB assembled-input limit; oversized input fails explicitly without submitting a partial review. The source inventory is limited to 2,000 names in the prompt; the model can locate other allowed files with glob. These limits do not change generic/StudioNet invocation timing. OpenCode gets an isolated home/config directory; read/edit permissions use worktree-relative paths, with external-directory access separately constrained.
+Each risk model call has a 20-minute timeout and a 512 KiB assembled-input limit; oversized input fails explicitly without submitting a partial review. The source inventory is limited to 2,000 names in the prompt; the model can locate other allowed files with glob. These limits do not change generic/StudioNet invocation timing. OpenCode gets separate isolated workspace and home/config/state directories; read/edit permissions use worktree-relative paths, with external-directory access separately constrained. Its required plugin API dependency is installed from a pinned lockfile at image build and supplied to the empty config directory, avoiding cold runtime dependency installation even though OpenCode initializes that dependency under `--pure`.
+
+The runner consumes the pinned OpenCode CLI's JSON tool events. Each FIND/SCORE invocation must complete a successful read of an allowlisted source file, or the review fails as incomplete. Summaries distinguish model-reported inspection from tool-verified reads and report unsuccessful read attempts. A successful read proves access, not exhaustive understanding; findings and coverage still require independent triage.
 
 The runner checks the MR head against the triggering pipeline, checks out that head, paginates diffs/notes, checks GitLab 17.x `/changes` overflow as well as newer diff-size flags, accepts metadata-only rename/mode/binary entries with explicit limitations, rejects incomplete GitLab context and missing scores, then checks head freshness before posting. Each summary identifies head SHA, pipeline and triggering note. A later push makes the old result stale even if posting has already begun.
+
+GitLab's `/changes` endpoint is deprecated and scheduled for removal in API v5. Revalidate completeness detection before a GitLab/API upgrade; an unavailable or unknown overflow result fails closed.
 
 ## Deployment
 
@@ -24,13 +28,15 @@ Source mirror: `unicstay/infra/gitlab-review-agent` (project212). Its CI config 
 
 Upgrade the existing `sombrero / gitlab / ai-webhook` deployment and existing `ai-webhook.gitlab.superbiche.co` ingress. Align the bot username to `ai`, select Flash, set `REVIEW_ONLY=true`, disable pending-pipeline cancellation, and retain the existing webhook secret. Never apply a Secret from the historical all.yaml merely to update the deployment.
 
-Use `AI_AGENT_IMAGE` pointing at the verified immutable agent image. The bot token must be the existing ai user's credential and have repository-read, note-posting and pipeline privileges. Consumer jobs need private registry pull authorization; validate it with a real job rather than assuming cross-project CI_JOB_TOKEN permissions.
+Use `AI_AGENT_IMAGE` pointing at the verified immutable agent image. Record its digest alongside the webhook digest, source commit and template ref in the deployment evidence. The bot token must be the existing ai user's credential and have repository-read, note-posting and pipeline privileges. Consumer jobs need private registry pull authorization; validate it with a real job rather than assuming cross-project CI_JOB_TOKEN permissions.
 
 ## Enrollment
 
 For main apps and stack, move the original root CI byte-for-byte into `.gitlab/normal-pipeline.yml`. Root conditional includes select the normal pipeline for AI_TRIGGER != true or `gitlab-utils/risk-review.yml` from the mirror at a full commit SHA for equality. Normal and review configurations never merge. Update stack's `.gitlab-ci.yml` changes-watchers to also include the moved normal file. Infra had no CI: include the review template unconditionally so the YAML remains valid, with its workflow denying ordinary pipelines.
 
-CI lint must confirm normal merged configuration equivalence and exactly one review job. Register note-only hooks after enrollment, SSL verification enabled, using the existing webhook secret. Existing MR branches need the enrolled CI files before invoking the bot.
+CI lint must confirm normal merged configuration equivalence and exactly one review job. Deploy the comma-separated SHA-256 hashes of the validated CI entrypoint files in `REVIEW_CI_CONFIG_SHA256`. In review-only mode, missing/unapproved entrypoints refuse before pipeline creation and post an explanatory MR note. Refresh this allowlist when the router or its pinned ref changes, after validating isolation. This guards old/unenrolled branches; it does not replace GitLab's CI authoring permissions or make arbitrary CI secure. The dedicated source mirror uses its separately validated custom entrypoint during acceptance.
+
+Register note-only hooks after enrollment, SSL verification enabled, using the existing webhook secret. Existing MR branches need the enrolled CI files before invoking the bot.
 
 ## Validation
 

@@ -11,3 +11,6 @@ Confidence measures evidence, not impact: 90–100 directly established; 80–89
 Return exactly one score per supplied issue ID: no omissions, duplicates or invented IDs. Disproven candidates score zero. Return only JSON and write the same JSON to outputPath:
 
 {"scores":[{"id":"1","confidence":85,"reason":"Independent file:line evidence supporting/refuting the candidate; remaining assumptions."}]}
+# Source inspection evidence
+
+Use the read tool to verify candidate claims against relevant allowed source files at their absolute repository paths. The runner requires successful source-read events for this validation pass. Report failed reads as limitations; never work around a denied read.

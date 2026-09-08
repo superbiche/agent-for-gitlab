@@ -38,3 +38,6 @@ Return only JSON and write the same JSON to outputPath from runner context, with
 {"issues":[{"id":"1","file":"src/file.ext","line_start":42,"line_end":42,"old_line":null,"category":"B","severity_hint":"P2","title":"Concrete defect","description":"Trigger, reach, expected/actual behavior and consequence.","evidence":"INFERRED or DEMONSTRATED; causal file:line references and disconfirming checks.","suggestion":"Smallest corrective remedy; identify architectural alternatives as operator proposals.","confidence":85,"confidence_reason":"Evidence establishing certainty."}],"inspected":["path:lines — contract/failure path actually examined"],"limitations":["Specific unavailable evidence or unresolved existing finding with note ID"]}
 
 issues and limitations may be empty. inspected must name at least one actual inspected surface; never manufacture evidence.
+# Source inspection evidence
+
+Before concluding, use the read tool to inspect relevant allowed source files at their absolute repository paths, including caller/contract context. The runner verifies successful source-read events; quoting the inline diff or claiming inspection cannot satisfy this gate. Report failed reads as limitations; never work around a denied read.

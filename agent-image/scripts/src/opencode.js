@@ -1,12 +1,14 @@
 import logger from "./logger.js";
 import { riskSourcePolicy } from "./risk-context.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, symlinkSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { spawnSync, execFileSync } from "node:child_process";
 
 export async function runOpencode(context, prompt, options = {}) {
   logger.start("Running opencode via cli...");
+  const risk = context.reviewProfile === "risk";
 
   const [providerID, modelID] = context.opencodeModel.split('/');
   if (!providerID || !modelID) {
@@ -27,8 +29,8 @@ export async function runOpencode(context, prompt, options = {}) {
     "ERROR"
   ];
 
-  if (options.format) {
-    cliArgs.push("--format", options.format);
+  if (risk || options.format) {
+    cliArgs.push("--format", risk ? "json" : options.format);
   }
 
   if (options.skipPermissions !== false) {
@@ -37,7 +39,6 @@ export async function runOpencode(context, prompt, options = {}) {
 
   logger.info(`Running: opencode ${cliArgs.join(" ")}`);
 
-  const risk = context.reviewProfile === "risk";
   const isolation = risk ? riskInvocation(context) : {};
   const input = `${risk ? isolation.context : context.agentPrompt}\n${prompt}`;
   if (risk && Buffer.byteLength(input, "utf8") > 512 * 1024) throw new Error("Review context exceeds 512 KiB; split the MR or use local review. No partial review was submitted.");
@@ -59,7 +60,35 @@ export async function runOpencode(context, prompt, options = {}) {
   }
 
   logger.success("opencode CLI completed");
+  if (risk) {
+    const evidence = parseRiskEvents(result.stdout || "", isolation.sourcePolicy, isolation.options.cwd);
+    context.verifiedSourceReads = [...new Set([...(context.verifiedSourceReads || []), ...evidence.reads])];
+    context.sourceReadFailures = [...new Set([...(context.sourceReadFailures || []), ...evidence.failedReads])];
+    return evidence.text;
+  }
   return result.stdout || "";
+}
+
+// Consume the pinned CLI's JSON events, never model-authored claims of tool use.
+export function parseRiskEvents(output, policy, worktree) {
+  const allowed = new Set(policy.allowed.map(file => resolve(policy.repo, file)));
+  const reads = new Set();
+  const failedReads = new Set();
+  const text = [];
+  for (const line of output.split("\n").filter(line => line.trim())) {
+    let event;
+    try { event = JSON.parse(line); } catch { throw new Error("Risk review tool evidence was not valid CLI JSON; review incomplete."); }
+    if (event.type === "error") throw new Error("Risk review CLI reported an error; review incomplete.");
+    if (event.type === "text" && typeof event.part?.text === "string") text.push(event.part.text);
+    if (event.type !== "tool_use" || event.part?.tool !== "read") continue;
+    const state = event.part.state;
+    if (typeof state?.input?.filePath !== "string") continue;
+    const file = resolve(worktree, state.input.filePath);
+    if (state.status === "completed" && allowed.has(file)) reads.add(relative(policy.repo, file));
+    if (state.status === "error") failedReads.add(relative(policy.repo, file));
+  }
+  if (!reads.size) throw new Error("Risk review completed no successful allowlisted source reads; review incomplete.");
+  return { text: text.join("\n"), reads: [...reads], failedReads: [...failedReads] };
 }
 
 // Run outside the reviewed tree: its OpenCode configuration/plugins are not loaded.
@@ -69,7 +98,16 @@ export function riskInvocation(context) {
   const repo = process.cwd();
   const policy = context.sourcePolicy || riskSourcePolicy(repo);
   const files = policy.allowed;
-  const runDir = mkdtempSync(join(tmpdir(), "risk-review-"));
+  const isolationRoot = mkdtempSync(join(tmpdir(), "risk-review-"));
+  const runDir = join(isolationRoot, "work");
+  mkdirSync(runDir);
+  const configDir = join(isolationRoot, "config", "opencode");
+  mkdirSync(configDir, { recursive: true });
+  // OpenCode initializes this dependency even with --pure. Supply audited build-time
+  // dependencies so a fresh HOME never needs a runtime package fetch.
+  const bootstrap = fileURLToPath(new URL("../../opencode-bootstrap/", import.meta.url));
+  for (const file of ["package.json", "package-lock.json"]) copyFileSync(join(bootstrap, file), join(configDir, file));
+  symlinkSync(join(bootstrap, "node_modules"), join(configDir, "node_modules"), "dir");
   // Pin OpenCode instance.worktree so permission patterns have a known relative base.
   execFileSync("git", ["init", "--quiet", runDir]);
   const read = { "*": "deny" };
@@ -78,13 +116,15 @@ export function riskInvocation(context) {
   read[relative(runDir, "/tmp/review-scores.json")] = "allow";
   const permission = { "*": "deny", read, glob: "allow", edit: { "*": "deny", [relative(runDir, "/tmp/review-findings.json")]: "allow", [relative(runDir, "/tmp/review-scores.json")]: "allow" }, external_directory: { "*": "deny", [`${repo}/**`]: "allow", "/tmp/*": "allow" } };
   const history = execFileSync("git", ["log", "-10", "--oneline", "--name-only"], { encoding: "utf8", maxBuffer: 1024 * 1024 });
-  const configPath = join(runDir, "opencode.json");
+  const configPath = join(isolationRoot, "opencode.json");
   writeFileSync(configPath, JSON.stringify({ permission, share: "disabled", lsp: false }));
   return {
+    isolationRoot,
+    sourcePolicy: { ...policy, repo },
     context: `Repository for read-only inspection: ${repo}\nOnly source reads, glob filename discovery and the two JSON output writes are permitted. No shell or content-search tools. Use this partial tracked inventory, or glob within the repository to locate other callers, then read their absolute paths.\n${files.slice(0, 2000).join("\n")}\n${Math.max(0, files.length - 2000)} more readable tracked files can be located with glob.\nRecent history:\n${history}`,
     options: {
       cwd: runDir,
-      env: { PATH: process.env.PATH, HOME: runDir, XDG_CONFIG_HOME: join(runDir, "config"), XDG_DATA_HOME: join(runDir, "data"), XDG_STATE_HOME: join(runDir, "state"), DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, OPENCODE_CONFIG: configPath, OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" },
+      env: { PATH: process.env.PATH, HOME: join(isolationRoot, "home"), XDG_CONFIG_HOME: join(isolationRoot, "config"), XDG_DATA_HOME: join(isolationRoot, "data"), XDG_STATE_HOME: join(isolationRoot, "state"), DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, OPENCODE_CONFIG: configPath, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" },
     },
   };
 }

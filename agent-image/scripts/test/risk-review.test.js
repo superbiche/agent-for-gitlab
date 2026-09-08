@@ -32,7 +32,7 @@ test("credential-bearing infrastructure and discussions never enter external rev
   assert.throws(()=>validateRiskContext({...data,diffs:[],notes:[{body:"-----BEGIN PRIVATE KEY-----"}]},{excluded:[]}));
 });
 
-import { riskInvocation } from "../src/opencode.js";
+import { riskInvocation, parseRiskEvents } from "../src/opencode.js";
 import { readFileSync, rmSync } from "node:fs";
 import { relative, resolve } from "node:path";
 test("risk permissions match OpenCode worktree-relative reads and deny commands/untracked files", () => {
@@ -45,7 +45,21 @@ test("risk permissions match OpenCode worktree-relative reads and deny commands/
     assert.equal(config.permission["*"],"deny");
     assert.equal(config.permission.edit[relative(invocation.options.cwd,"/tmp/review-findings.json")],"allow");
     assert.equal(invocation.options.env.GITLAB_TOKEN,undefined);
-  } finally {rmSync(invocation.options.cwd,{recursive:true,force:true});}
+    assert.notEqual(invocation.options.env.HOME, invocation.options.cwd);
+    assert.equal(invocation.options.env.OPENCODE_DISABLE_PROJECT_CONFIG,"true");
+  } finally {rmSync(invocation.isolationRoot,{recursive:true,force:true});}
+});
+
+test("model inspection claims and denied or unrelated reads cannot certify source inspection",()=>{
+  const policy={repo:"/repo",allowed:["a.js"]};
+  const text={type:"text",part:{text:'{"inspected":["a.js"],"issues":[],"limitations":[]}'}};
+  const read=(filePath,status="completed")=>({type:"tool_use",part:{tool:"read",state:{input:{filePath},status}}});
+  const events=(...items)=>items.map(JSON.stringify).join("\n");
+  for(const output of [events(text),events(read("/repo/a.js","error"),text),events(read("/tmp/review-findings.json"),text)]) assert.throws(()=>parseRiskEvents(output,policy,"/work"),/no successful/);
+  const result=parseRiskEvents(events(read("/repo/a.js"),read("/repo/b.js","error"),text),policy,"/work");
+  assert.deepEqual(result.reads,["a.js"]);
+  assert.deepEqual(result.failedReads,["b.js"]);
+  assert.equal(result.text,text.part.text);
 });
 
 import { validateReviewDiffs } from "../src/review.js";
