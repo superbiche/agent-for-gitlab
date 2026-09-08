@@ -15,9 +15,8 @@ runner-tests:
     - AI_DRY_RUN=1 DIRECT_PROMPT=review AI_RESOURCE_TYPE=mr AI_RESOURCE_ID=7 node ai-runner.js
 .build-unicstay:
   stage: build
-  services:
-    - name: docker:27.0.3-dind
-      alias: docker
+  # Unicstay runner injects docker:dind and its shared client cert volume.
+  # Adding a second service races certificate generation inside the same pod.
   before_script:
     - for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
     - docker info
