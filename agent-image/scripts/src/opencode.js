@@ -1,7 +1,8 @@
 import logger from "./logger.js";
-import { mkdtempSync } from "node:fs";
+import { riskSourcePolicy } from "./risk-context.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { spawnSync, execFileSync } from "node:child_process";
 
 export async function runOpencode(context, prompt, options = {}) {
@@ -62,17 +63,22 @@ export async function runOpencode(context, prompt, options = {}) {
 export function riskInvocation(context) {
   if (!context.opencodeModel.startsWith("deepseek/")) throw new Error("Risk deployment currently supports the DeepSeek provider only");
   const repo = process.cwd();
-  const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: 5 * 1024 * 1024 }).split("\0").filter(Boolean);
-  const read = { "*": "deny", [`${repo}/**`]: "allow", "**/.git/**": "deny", "**/.env*": "deny", "**/*secret*": "deny", "**/*.pem": "deny", "**/*.key": "deny" };
-  const entries = execFileSync("git", ["ls-files", "--stage", "-z"], { encoding: "utf8", maxBuffer: 5 * 1024 * 1024 }).split("\0");
-  for (const entry of entries) if (entry.startsWith("120000 ")) read[`${repo}/${entry.split("\t")[1]}`] = "deny";
-  const permission = { "*": "deny", read, edit: { "*": "deny", "/tmp/review-findings.json": "allow", "/tmp/review-scores.json": "allow" }, external_directory: { "*": "deny", [`${repo}/**`]: "allow", "/tmp/review-findings.json": "allow", "/tmp/review-scores.json": "allow" } };
+  const policy = context.sourcePolicy || riskSourcePolicy(repo);
+  const files = policy.allowed;
+  const runDir = mkdtempSync(join(tmpdir(), "risk-review-"));
+  // Pin OpenCode instance.worktree so permission patterns have a known relative base.
+  execFileSync("git", ["init", "--quiet", runDir]);
+  const read = { "*": "deny" };
+  for (const file of files) read[relative(runDir, `${repo}/${file}`)] = "allow";
+  const permission = { "*": "deny", read, edit: { "*": "deny", [relative(runDir, "/tmp/review-findings.json")]: "allow", [relative(runDir, "/tmp/review-scores.json")]: "allow" }, external_directory: { "*": "deny", [`${repo}/**`]: "allow", "/tmp/*": "allow" } };
   const history = execFileSync("git", ["log", "-10", "--oneline", "--name-only"], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+  const configPath = join(runDir, "opencode.json");
+  writeFileSync(configPath, JSON.stringify({ permission, share: "disabled", lsp: false }));
   return {
     context: `Repository for read-only inspection: ${repo}\nOnly read and the two JSON output writes are permitted. No shell/search tools; use this tracked file inventory to locate callers, then read their absolute paths.\n${files.join("\n")}\nRecent history:\n${history}`,
     options: {
-      cwd: mkdtempSync(join(tmpdir(), "risk-review-")),
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission, share: "disabled", lsp: false }), OPENCODE_PERMISSION: JSON.stringify(permission), OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" },
+      cwd: runDir,
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, OPENCODE_CONFIG: configPath, OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" },
     },
   };
 }

@@ -22,3 +22,28 @@ test("review context paginates diffs and notes instead of silently reviewing onl
     assert.equal(requests.length,4);
   } finally { globalThis.fetch=original; }
 });
+
+import { credentialMaterial, validateRiskContext } from "../src/risk-context.js";
+test("credential-bearing infrastructure and discussions never enter external review context", () => {
+  assert.equal(credentialMaterial("+kind: Secret\n+data:\n+  value: ZXhhbXBsZQ=="), true);
+  assert.equal(credentialMaterial("kind: Deployment\nsecretKeyRef:\n  name: existing"), false);
+  const data={mr:{},notes:[],diffs:[{new_path:"all.yaml",diff:"+kind: Secret"}]};
+  assert.throws(()=>validateRiskContext(data,{excluded:[]}));
+  assert.throws(()=>validateRiskContext({...data,diffs:[],notes:[{body:"-----BEGIN PRIVATE KEY-----"}]},{excluded:[]}));
+});
+
+import { riskInvocation } from "../src/opencode.js";
+import { readFileSync, rmSync } from "node:fs";
+import { relative, resolve } from "node:path";
+test("risk permissions match OpenCode worktree-relative reads and deny commands/untracked files", () => {
+  const invocation=riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash"});
+  try {
+    const config=JSON.parse(readFileSync(invocation.options.env.OPENCODE_CONFIG,"utf8"));
+    const key=relative(invocation.options.cwd,resolve("src/review.js"));
+    assert.equal(config.permission.read[key],"allow");
+    assert.equal(config.permission.read["*"],"deny");
+    assert.equal(config.permission["*"],"deny");
+    assert.equal(config.permission.edit[relative(invocation.options.cwd,"/tmp/review-findings.json")],"allow");
+    assert.equal(invocation.options.env.GITLAB_TOKEN,undefined);
+  } finally {rmSync(invocation.options.cwd,{recursive:true,force:true});}
+});

@@ -3,6 +3,7 @@ import { readFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
+import { riskSourcePolicy, validateRiskContext } from "./risk-context.js";
 import { runOpencode } from "./opencode.js";
 import {
   fetchMergeRequest,
@@ -38,6 +39,8 @@ export async function runReview(context) {
       throw new Error("MR head differs from the triggering pipeline; trigger a new review.");
     }
     execFileSync("git", ["checkout", "--detach", head], { stdio: "pipe" });
+    context.sourcePolicy = riskSourcePolicy();
+    validateRiskContext(reviewData, context.sourcePolicy);
   }
   const rawFindings = context.dryRun
     ? normalizeFindings(reviewData.findings)
@@ -48,6 +51,7 @@ export async function runReview(context) {
       : await scoreIssues(context, reviewData, rawFindings)
     : rawFindings;
 
+  if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} credential-bearing, symlink, submodule or oversized files.`);
   const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
   const filtered = filterFindings(scoredFindings, threshold);
   const postPlan = buildPostPlan(context, reviewData, filtered);

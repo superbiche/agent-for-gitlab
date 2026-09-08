@@ -10,7 +10,7 @@ This deployment adds an on-demand second opinion for risky agent-authored MRs. I
 - `REVIEW_SCORING=agents`: a separate model invocation verifies candidates; this is not a claim of model-family independence.
 - Severity P1/P2/P3 is independent of confidence. Findings require triggers, reach, causal evidence and smallest remedies. Empty results list inspected surfaces and limitations.
 
-Risk runs execute OpenCode outside the reviewed repository with explicit permissions: source reading and the two JSON output writes only, no shell, search, delegation, plugins or LSP. CI GitLab credentials are not passed to the model subprocess. Tracked symlinks and credential paths are denied. This is tool permission enforcement, not an OS sandbox. Runtime tests are performed by the implementing agent outside this credential-bearing job.
+Risk runs execute OpenCode outside the reviewed repository with explicit permissions: source reading and the two JSON output writes only, no shell, search, delegation, plugins or LSP. CI GitLab credentials are not passed to the model subprocess. Only inventoried tracked regular files are readable. Symlinks, submodules, files over 1 MiB, credential paths, private keys, recognizable provider tokens, current CI secret values and Kubernetes Secret documents are excluded. Credential-bearing diffs or discussions refuse external review. This detection is defense in depth, not a universal secret scanner; missing context is reported. This is tool permission enforcement, not an OS sandbox. Runtime tests are performed by the implementing agent outside this credential-bearing job.
 
 The runner checks the MR head against the triggering pipeline, checks out that head, paginates diffs/notes, rejects incomplete GitLab context and missing scores, then checks head freshness before posting. Each summary identifies head SHA, pipeline and triggering note. A later push makes the old result stale even if posting has already begun.
 
@@ -24,7 +24,7 @@ Use `AI_AGENT_IMAGE` pointing at the verified immutable agent image. The bot tok
 
 ## Enrollment
 
-For main apps and stack, move the original root CI byte-for-byte into `.gitlab/normal-pipeline.yml`. Root conditional includes select the normal pipeline for AI_TRIGGER != true or `gitlab-utils/risk-review.yml` from the mirror at a full commit SHA for equality. Normal and review configurations never merge. Update stack's `.gitlab-ci.yml` changes-watchers to also include the moved normal file. Infra had no CI: add only review workflow, with ordinary pipelines denied.
+For main apps and stack, move the original root CI byte-for-byte into `.gitlab/normal-pipeline.yml`. Root conditional includes select the normal pipeline for AI_TRIGGER != true or `gitlab-utils/risk-review.yml` from the mirror at a full commit SHA for equality. Normal and review configurations never merge. Update stack's `.gitlab-ci.yml` changes-watchers to also include the moved normal file. Infra had no CI: include the review template unconditionally so the YAML remains valid, with its workflow denying ordinary pipelines.
 
 CI lint must confirm normal merged configuration equivalence and exactly one review job. Register note-only hooks after enrollment, SSL verification enabled, using the existing webhook secret. Existing MR branches need the enrolled CI files before invoking the bot.
 
