@@ -110,3 +110,14 @@ test("failed invocation setup cleans self-owned source snapshot",()=>{
     f.close();
   }
 });
+
+
+test("GitLab null modes support added/deleted regular files while blocking special modes",()=>{
+  const check=(a_mode,b_mode)=>validateRiskContext({diffs:[{old_path:'file.js',new_path:'file.js',a_mode,b_mode}]},{excluded:[],findings:[]});
+  for(const modes of [['0','100644'],['100644','0'],['000000','100644'],['100644','000000'],['100644','100644'],['100644','100755'],['100755','100644'],['100755','100755'],['0','100755'],['100755','0']]) assert.doesNotThrow(()=>check(...modes));
+  for(const mode of ['120000','160000','100600','unsupported']) {
+    assert.throws(()=>check('0',mode),/structurally excluded/);
+    assert.throws(()=>check(mode,'0'),/structurally excluded/);
+    assert.throws(()=>check('100644',mode),/structurally excluded/);
+  }
+});

@@ -135,7 +135,7 @@ async function runJsonOpencode(context, prompt, filePath, label) {
   rmSync(filePath, { force: true });
   output = await runOpencode(
     context,
-    context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\nReturn only valid JSON matching the requested schema. Also write it to ${filePath}.`,
+    context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\n\n---\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
     { captureOutput: true },
   );
   return parseModelJson(output, filePath, label);

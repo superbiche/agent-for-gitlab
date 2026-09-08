@@ -33,7 +33,7 @@ export function riskSourcePolicy(repo = process.cwd(), scannerOptions) {
 
 export function validateRiskContext(data, policy) {
   for (const diff of data.diffs) {
-    if ([diff.a_mode,diff.b_mode].filter(Boolean).some(mode => !["100644","100755","000000"].includes(mode)) || ![diff.new_path, diff.old_path].filter(Boolean).every(safeSourcePath) || policy.excluded.includes(diff.new_path) || policy.excluded.includes(diff.old_path)) {
+    if ([diff.a_mode,diff.b_mode].filter(Boolean).some(mode => !["100644","100755","000000","0"].includes(mode)) || ![diff.new_path, diff.old_path].filter(Boolean).every(safeSourcePath) || policy.excluded.includes(diff.new_path) || policy.excluded.includes(diff.old_path)) {
       const paths = [diff.old_path,diff.new_path].filter(Boolean);
       refuseFindings((policy.findings || []).filter(f => paths.includes(f.file)), "changed source");
       throw new Error(`Changed source is structurally excluded; external review blocked: ${JSON.stringify(paths)}. Use local review for unsupported file modes, sizes or paths.`);
