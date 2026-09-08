@@ -15,6 +15,9 @@ runner-tests:
     - if: '$AI_TRIGGER != "true"'
   stage: test
   image: node:22-bookworm-slim
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends git
   script:
     - cd agent-image/scripts
     - npm test
