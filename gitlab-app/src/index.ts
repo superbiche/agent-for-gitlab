@@ -42,7 +42,8 @@ app.use("*", async (c, next) => {
 });
 app.get("/health", (c) => c.text("ok"));
 
-// Optional admin endpoint to disable bot
+// Optional admin endpoints exist only when explicitly configured.
+if (process.env.ADMIN_TOKEN) {
 app.get(
   "/admin/disable",
   bearerAuth({ token: process.env.ADMIN_TOKEN! }),
@@ -63,6 +64,8 @@ app.get(
   }
 );
 
+}
+
 // Single webhook endpoint for all projects
 app.post("/webhook", async (c) => {
   const gitlabEvent = c.req.header("x-gitlab-event");
@@ -74,7 +77,7 @@ app.post("/webhook", async (c) => {
   });
 
   // Verify webhook secret
-  if (gitlabToken !== process.env.WEBHOOK_SECRET) {
+  if (!process.env.WEBHOOK_SECRET || gitlabToken !== process.env.WEBHOOK_SECRET) {
     logger.warn("Webhook unauthorized - invalid token");
     return c.text("unauthorized", 401);
   }
@@ -123,6 +126,13 @@ app.post("/webhook", async (c) => {
   if (process.env.AI_GITLAB_USERNAME === authorUsername) {
     logger.warn("Ignoring self-triggered note");
     return c.text("self-trigger");
+  }
+
+  // Review deployments never enter generic execution or create issue branches.
+  const directMatch = note.match(new RegExp(`${triggerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(.*)`, "is"));
+  const command = directMatch ? directMatch[1].trim() : "";
+  if (process.env.REVIEW_ONLY === "true" && (!mrIid || !/^review\b/i.test(command))) {
+    return c.text("review-only: use @ai review on a merge request");
   }
 
   const resourceId = mrIid || issueIid || "general";
@@ -278,7 +288,9 @@ app.post("/webhook", async (c) => {
     OPENCODE_MODEL: process.env.OPENCODE_MODEL || "azure/gpt-4.1",
     OPENCODE_AGENT_PROMPT: process.env.OPENCODE_AGENT_PROMPT || "",
     TRIGGER_PHRASE: triggerPhrase,
-    DIRECT_PROMPT: aggregatedPrompt,
+    // Preserve command routing when review is requested inside an existing thread.
+    DIRECT_PROMPT: /^review\b/i.test(directPrompt) ? directPrompt : aggregatedPrompt,
+    AI_TRIGGER_NOTE_ID: String(body.object_attributes?.id || ""),
     GITLAB_WEBHOOK_PAYLOAD: JSON.stringify(minimalPayload),
   };
 

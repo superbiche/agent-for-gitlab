@@ -1,12 +1,16 @@
+FROM node:22-bookworm-slim AS dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 FROM oven/bun:1-alpine
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json bun.lockb* ./
+COPY package.json ./
+COPY --from=dependencies /app/node_modules ./node_modules
 
-# Install production dependencies only
-RUN bun install --production
 
 # Copy source code
 COPY src/ ./src/

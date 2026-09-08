@@ -53,11 +53,11 @@ export async function fetchMergeRequest(context, mrIid = context.mrIid) {
 }
 
 export async function fetchMergeRequestDiffs(context, mrIid = context.mrIid) {
-  return gitlabApi(context, "GET", `/projects/${context.projectId}/merge_requests/${mrIid}/diffs`);
+  return paginated(context, `/projects/${context.projectId}/merge_requests/${mrIid}/diffs`);
 }
 
 export async function fetchMergeRequestNotes(context, mrIid = context.mrIid) {
-  return gitlabApi(context, "GET", `/projects/${context.projectId}/merge_requests/${mrIid}/notes?per_page=100`);
+  return paginated(context, `/projects/${context.projectId}/merge_requests/${mrIid}/notes`);
 }
 
 export async function postMergeRequestNote(context, mrIid, body) {
@@ -69,4 +69,15 @@ export async function postMergeRequestDiscussion(context, mrIid, body, position)
     body,
     position,
   });
+}
+
+async function paginated(context, path) {
+  const items = [];
+  for (let page = 1; page <= 100; page++) {
+    const batch = await gitlabApi(context, "GET", `${path}?per_page=100&page=${page}`);
+    if (!Array.isArray(batch)) throw new Error("Invalid GitLab list response");
+    items.push(...batch);
+    if (batch.length < 100) return items;
+  }
+  throw new Error("GitLab pagination limit reached; context is incomplete");
 }

@@ -1,0 +1,41 @@
+# Dedicated source mirror builds. Consumer reviews use gitlab-utils/risk-review.yml.
+image: docker:27.0.3
+variables:
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_CERTDIR: /certs
+  DOCKER_TLS_VERIFY: '1'
+  DOCKER_CERT_PATH: '$DOCKER_TLS_CERTDIR/client'
+stages: [test, build]
+runner-tests:
+  stage: test
+  image: node:22-bookworm-slim
+  script:
+    - cd agent-image/scripts
+    - npm test
+    - AI_DRY_RUN=1 DIRECT_PROMPT=review AI_RESOURCE_TYPE=mr AI_RESOURCE_ID=7 node ai-runner.js
+.build-unicstay:
+  stage: build
+  services:
+    - name: docker:27.0.3-dind
+      alias: docker
+  before_script:
+    - for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
+    - docker info
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+  script:
+    - docker build -f "$BUILD_DOCKERFILE" -t "$CI_REGISTRY_IMAGE/$BUILD_COMPONENT:$CI_COMMIT_SHA" "$BUILD_CONTEXT"
+    - docker push "$CI_REGISTRY_IMAGE/$BUILD_COMPONENT:$CI_COMMIT_SHA"
+build-agent:
+  extends: .build-unicstay
+  variables:
+    BUILD_DOCKERFILE: agent-image/Dockerfile
+    BUILD_COMPONENT: agent
+    BUILD_CONTEXT: .
+build-webhook:
+  extends: .build-unicstay
+  variables:
+    BUILD_DOCKERFILE: gitlab-app/Dockerfile
+    BUILD_COMPONENT: webhook
+    BUILD_CONTEXT: gitlab-app

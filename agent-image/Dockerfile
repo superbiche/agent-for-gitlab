@@ -2,7 +2,7 @@ ARG NODE_IMAGE=node:22-bookworm-slim
 FROM ${NODE_IMAGE}
 
 ARG GLAB_VERSION=1.102.0
-ARG OPENCODE_AI_VERSION=1.17.3
+ARG OPENCODE_AI_VERSION=1.18.18
 
 LABEL org.opencontainers.image.source="https://github.com/Schickli/ai-code-for-gitlab" \
 	  org.opencontainers.image.title="AI GitLab Agent" \
