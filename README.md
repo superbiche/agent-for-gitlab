@@ -129,3 +129,41 @@ The test covers added lines, context lines, renamed files, deleted lines, and mi
 - Large MRs may exceed model context in thorough mode; v1 documents this but does not chunk diffs.
 - Inline DiffNotes depend on GitLab accepting the position object. The runner falls back to plain MR notes when a position is unmappable or rejected.
 - The generic `@ai <anything>` path captures opencode stdout and posts it as a note.
+
+### Native secret policy for risk reviews
+
+Risk reviews use TruffleHog 3.97.0, matching the local commit hook. The image pins
+its official Linux amd64 archive SHA256; there is no runtime scanner download.
+Source files are read from a private snapshot of the reviewed Git head. Native
+findings remove a file from model-read permissions; unrelated unchanged findings
+do not block every MR. Changes touching an excluded file fail before provider
+submission. Symlink, submodule, oversized and unsupported paths remain excluded.
+
+The tracked `.trufflehog-exclude-paths` at that head uses TruffleHog's native
+repository-relative path regex semantics, including anchored expressions. Missing
+configuration means no exceptions. Invalid configuration and scanner failures
+block review. Only the operator should approve narrow whole-file exceptions;
+an exception permits that source file and its diff to reach the provider.
+
+Diffs include removed lines and old paths. Source segments are scanned under their
+original paths; MR metadata, notes, focus, recent history and scoring/retry text
+are scanned separately without source-file exceptions. This prevents a fixture
+exception from also exempting a credential pasted into a discussion. TruffleHog
+is the sole detector: all result classes are included, verification and updates
+are disabled, and raw scanner diagnostics are suppressed. Detection has the same
+limits as the pinned native tool; this is not proof that arbitrary text is secret-free.
+
+Offline verification from `agent-image/scripts`:
+
+```sh
+npm test
+node verification/native-policy.mjs
+AI_DRY_RUN=1 DIRECT_PROMPT=review AI_RESOURCE_TYPE=mr AI_RESOURCE_ID=7 node ai-runner.js
+```
+
+Unit tests use controlled fake scanner processes and require no installed binary.
+The separate native gate requires TruffleHog on PATH (or `NATIVE_SCANNER` pointing
+to its binary) and fails if unavailable; it uses generated nonfunctional fixtures,
+never live credentials or provider calls. Run that gate inside the built image too.
+Official checksum source:
+https://github.com/trufflesecurity/trufflehog/releases/download/v3.97.0/trufflehog_3.97.0_checksums.txt
