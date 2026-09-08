@@ -33,21 +33,29 @@ test("credential-bearing infrastructure and discussions never enter external rev
 });
 
 import { riskInvocation, parseRiskEvents } from "../src/opencode.js";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 test("risk permissions match OpenCode worktree-relative reads and deny commands/untracked files", () => {
   const invocation=riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash"});
   try {
     const config=JSON.parse(readFileSync(invocation.options.env.OPENCODE_CONFIG,"utf8"));
-    const key=relative(invocation.options.cwd,resolve("src/review.js"));
+    const key=relative("/",resolve("src/review.js"));
     assert.equal(config.permission.read[key],"allow");
     assert.equal(config.permission.read["*"],"deny");
     assert.equal(config.permission["*"],"deny");
-    assert.equal(config.permission.edit[relative(invocation.options.cwd,"/tmp/review-findings.json")],"allow");
+    assert.equal(config.permission.edit[relative("/","/tmp/review-findings.json")],"allow");
+    assert.equal(existsSync(resolve(invocation.options.cwd,".git")),false);
     assert.equal(invocation.options.env.GITLAB_TOKEN,undefined);
     assert.notEqual(invocation.options.env.HOME, invocation.options.cwd);
     assert.equal(invocation.options.env.OPENCODE_DISABLE_PROJECT_CONFIG,"true");
   } finally {rmSync(invocation.isolationRoot,{recursive:true,force:true});}
+});
+
+test("risk isolation refuses a temporary directory inside a Git worktree", () => {
+  const previous=process.env.TMPDIR;
+  process.env.TMPDIR=process.cwd();
+  try { assert.throws(()=>riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash"}),/outside any Git worktree/); }
+  finally { if(previous===undefined) delete process.env.TMPDIR; else process.env.TMPDIR=previous; }
 });
 
 test("model inspection claims and denied or unrelated reads cannot certify source inspection",()=>{

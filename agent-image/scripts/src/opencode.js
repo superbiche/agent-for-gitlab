@@ -1,6 +1,6 @@
 import logger from "./logger.js";
 import { riskSourcePolicy } from "./risk-context.js";
-import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, symlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, symlinkSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -101,6 +101,17 @@ export function riskInvocation(context) {
   const isolationRoot = mkdtempSync(join(tmpdir(), "risk-review-"));
   const runDir = join(isolationRoot, "work");
   mkdirSync(runDir);
+  // The pinned CLI can deadlock while booting Git-backed location services.
+  // Its non-Git worktree is "/"; verify that invariant before rebasing permissions.
+  const gitProbe = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: runDir, encoding: "utf8",
+    env: { PATH: process.env.PATH, HOME: join(isolationRoot, "home"), LC_ALL: "C" },
+  });
+  if (gitProbe.error || gitProbe.status !== 128 || !gitProbe.stderr.includes("not a git repository")) {
+    rmSync(isolationRoot, { recursive: true, force: true });
+    throw new Error("Risk review requires a temporary directory outside any Git worktree.");
+  }
+  const permissionRoot = "/";
   const configDir = join(isolationRoot, "config", "opencode");
   mkdirSync(configDir, { recursive: true });
   // OpenCode initializes this dependency even with --pure. Supply audited build-time
@@ -108,13 +119,11 @@ export function riskInvocation(context) {
   const bootstrap = fileURLToPath(new URL("../../opencode-bootstrap/", import.meta.url));
   for (const file of ["package.json", "package-lock.json"]) copyFileSync(join(bootstrap, file), join(configDir, file));
   symlinkSync(join(bootstrap, "node_modules"), join(configDir, "node_modules"), "dir");
-  // Pin OpenCode instance.worktree so permission patterns have a known relative base.
-  execFileSync("git", ["init", "--quiet", runDir]);
   const read = { "*": "deny" };
-  for (const file of files) read[relative(runDir, `${repo}/${file}`)] = "allow";
-  read[relative(runDir, "/tmp/review-findings.json")] = "allow";
-  read[relative(runDir, "/tmp/review-scores.json")] = "allow";
-  const permission = { "*": "deny", read, glob: "allow", edit: { "*": "deny", [relative(runDir, "/tmp/review-findings.json")]: "allow", [relative(runDir, "/tmp/review-scores.json")]: "allow" }, external_directory: { "*": "deny", [`${repo}/**`]: "allow", "/tmp/*": "allow" } };
+  for (const file of files) read[relative(permissionRoot, `${repo}/${file}`)] = "allow";
+  read[relative(permissionRoot, "/tmp/review-findings.json")] = "allow";
+  read[relative(permissionRoot, "/tmp/review-scores.json")] = "allow";
+  const permission = { "*": "deny", read, glob: "allow", edit: { "*": "deny", [relative(permissionRoot, "/tmp/review-findings.json")]: "allow", [relative(permissionRoot, "/tmp/review-scores.json")]: "allow" }, external_directory: { "*": "deny", [`${repo}/**`]: "allow", "/tmp/*": "allow" } };
   const history = execFileSync("git", ["log", "-10", "--oneline", "--name-only"], { encoding: "utf8", maxBuffer: 1024 * 1024 });
   const configPath = join(isolationRoot, "opencode.json");
   writeFileSync(configPath, JSON.stringify({ permission, share: "disabled", lsp: false }));
