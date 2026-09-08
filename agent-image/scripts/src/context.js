@@ -10,7 +10,8 @@ export function buildContext() {
   }
 
   const reviewMode = normalizeChoice(process.env.REVIEW_MODE, ["loose", "strict", "excessive"], "strict");
-  const reviewScoringDefault = reviewMode === "excessive" ? "agents" : "global";
+  const reviewProfile = normalizeChoice(process.env.REVIEW_PROFILE, ["quick", "standard", "thorough", "risk"], "standard");
+  const reviewScoringDefault = reviewMode === "excessive" || reviewProfile === "risk" ? "agents" : "global";
   const resourceType = process.env.AI_RESOURCE_TYPE;
   const resourceId = process.env.AI_RESOURCE_ID;
 
@@ -37,7 +38,7 @@ export function buildContext() {
     checkoutDir: "./repo",
     mrIid: ["mr", "merge_request"].includes((resourceType || "").toLowerCase()) ? resourceId : undefined,
     reviewMode,
-    reviewProfile: normalizeChoice(process.env.REVIEW_PROFILE, ["quick", "standard", "thorough", "risk"], "standard"),
+    reviewProfile,
     reviewScoring: normalizeChoice(process.env.REVIEW_SCORING, ["global", "agents"], reviewScoringDefault),
     reviewLang: normalizeChoice(process.env.REVIEW_LANG, ["en", "fr"], "en"),
     reviewAudience: normalizeChoice(process.env.REVIEW_AUDIENCE, ["team", "oss", "self"], "team"),

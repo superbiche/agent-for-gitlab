@@ -81,3 +81,10 @@ async function paginated(context, path) {
   }
   throw new Error("GitLab pagination limit reached; context is incomplete");
 }
+
+export async function fetchMergeRequestDiffStatus(context) {
+  // GitLab 17.x exposes overflow here; /diffs only gained size flags later.
+  const result = await gitlabApi(context, "GET", `/projects/${context.projectId}/merge_requests/${context.mrIid}/changes`);
+  if (typeof result?.overflow !== "boolean") throw new Error("GitLab did not provide diff completeness status");
+  return { overflow: result.overflow };
+}

@@ -9,6 +9,7 @@ import {
   fetchMergeRequest,
   fetchMergeRequestDiffs,
   fetchMergeRequestNotes,
+  fetchMergeRequestDiffStatus,
   postMergeRequestDiscussion,
   postMergeRequestNote,
 } from "./gitlab.js";
@@ -47,10 +48,14 @@ export async function runReview(context) {
     : await findIssues(context, reviewData, focus);
   const scoredFindings = context.reviewScoring === "agents"
     ? context.dryRun
-      ? applyScores(rawFindings, reviewData.scores)
+      ? applyScores(rawFindings, reviewData.scores, context.reviewProfile === "risk")
       : await scoreIssues(context, reviewData, rawFindings)
     : rawFindings;
 
+  if (context.reviewProfile === "risk") {
+    const metadataOnly = reviewData.diffs.filter(d => !d.diff).map(d => d.new_path || d.old_path);
+    if (metadataOnly.length) scoredFindings.limitations.push(`Metadata-only diff entries (rename, mode, empty or binary): ${metadataOnly.join(", ")}`);
+  }
   if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} credential-bearing, symlink, submodule or oversized files.`);
   const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
   const filtered = filterFindings(scoredFindings, threshold);
@@ -84,14 +89,13 @@ export async function runReview(context) {
 
 async function prefetchReviewData(context) {
   logger.start(`Fetching GitLab MR !${context.mrIid} review context`);
-  const [mr, diffs, notes] = await Promise.all([
+  const [mr, diffs, notes, diffStatus] = await Promise.all([
     fetchMergeRequest(context),
     fetchMergeRequestDiffs(context),
     fetchMergeRequestNotes(context),
+    context.reviewProfile === "risk" ? fetchMergeRequestDiffStatus(context) : null,
   ]);
-  if (context.reviewProfile === "risk" && (!mr.diff_refs?.head_sha || diffs.some(d => d.too_large || d.collapsed || (!d.diff && !d.new_path?.match(/\.(png|jpg|jpeg|gif|ico|woff2?)$/i))))) {
-    throw new Error("Incomplete GitLab diff context; review cannot claim completion.");
-  }
+  if (context.reviewProfile === "risk") validateReviewDiffs(mr, diffs, diffStatus);
   return { mr, diffs, notes };
 }
 
@@ -465,10 +469,10 @@ function loadDryRunData(context) {
   const fixtureDir = resolve(__dirname, "..", "test", "fixtures");
   const mr = readFixture(context.dryRunFixtures.mr, join(fixtureDir, "mr.json"));
   const diffs = readFixture(context.dryRunFixtures.diffs, join(fixtureDir, "diffs.json"));
-  const findings = readFixture(context.dryRunFixtures.findings, join(fixtureDir, "findings.json"));
+  const findings = readFixture(context.dryRunFixtures.findings, join(fixtureDir, context.reviewProfile === "risk" ? "risk-findings.json" : "findings.json"));
   const scores = context.dryRunFixtures.scores && existsSync(context.dryRunFixtures.scores)
     ? readFixture(context.dryRunFixtures.scores)
-    : null;
+    : context.reviewProfile === "risk" ? readFixture(null, join(fixtureDir, "risk-scores.json")) : null;
   return { mr, diffs, notes: [], findings, scores };
 }
 
@@ -508,4 +512,8 @@ function formatRiskSummary(context, mr, findings, postPlan, noteLinks) {
   lines.push("", "### Limitations", "", ...(findings.limitations.length ? findings.limitations.map(s => `- ${s}`) : ["- Static review; no runtime verification unless explicitly evidenced above."]));
   lines.push("", "Severity describes impact; confidence describes certainty. Verify each finding and its remedy against the deployed path before fixing. Architectural changes require operator ruling.", "", `-- ${context.opencodeModel}`);
   return lines.join("\n");
+}
+
+export function validateReviewDiffs(mr, diffs, diffStatus) {
+  if (!mr.diff_refs?.head_sha || diffStatus?.overflow !== false || diffs.some(d => d.too_large || d.collapsed)) throw new Error("Incomplete GitLab diff context; review cannot claim completion.");
 }

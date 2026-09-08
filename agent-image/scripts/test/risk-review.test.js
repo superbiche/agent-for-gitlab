@@ -47,3 +47,24 @@ test("risk permissions match OpenCode worktree-relative reads and deny commands/
     assert.equal(invocation.options.env.GITLAB_TOKEN,undefined);
   } finally {rmSync(invocation.options.cwd,{recursive:true,force:true});}
 });
+
+import { validateReviewDiffs } from "../src/review.js";
+import { buildContext } from "../src/context.js";
+import { validateConfig } from "../src/config.js";
+test("empty metadata diffs are valid but actual overflow or unknown completeness is not",()=>{
+  const mr={diff_refs:{head_sha:"abc"}};
+  for (const d of [{diff:"",renamed_file:true},{diff:"",a_mode:"100644",b_mode:"100755"},{diff:"",new_file:true},{diff:"",new_path:"file.pdf"}]) validateReviewDiffs(mr,[d],{overflow:false});
+  for (const state of [{overflow:true},{}]) assert.throws(()=>validateReviewDiffs(mr,[],state));
+  assert.throws(()=>validateReviewDiffs(mr,[{too_large:true}],{overflow:false}));
+});
+test("risk profile defaults to independent scoring and refuses explicit global scoring",()=>{
+  const saved={profile:process.env.REVIEW_PROFILE,scoring:process.env.REVIEW_SCORING};
+  process.env.REVIEW_PROFILE="risk";delete process.env.REVIEW_SCORING;
+  try{
+    assert.equal(buildContext().reviewScoring,"agents");
+    assert.throws(()=>validateConfig({...buildContext(),dryRun:true,reviewScoring:"global"}),/independent scoring/);
+  }finally{
+    if(saved.profile===undefined)delete process.env.REVIEW_PROFILE;else process.env.REVIEW_PROFILE=saved.profile;
+    if(saved.scoring===undefined)delete process.env.REVIEW_SCORING;else process.env.REVIEW_SCORING=saved.scoring;
+  }
+});
