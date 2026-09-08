@@ -3,7 +3,7 @@ import { readFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
-import { riskSourcePolicy, validateRiskContext } from "./risk-context.js";
+import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-context.js";
 import { runOpencode } from "./opencode.js";
 import {
   fetchMergeRequest,
@@ -41,52 +41,54 @@ export async function runReview(context) {
     }
     execFileSync("git", ["checkout", "--detach", head], { stdio: "pipe" });
     context.sourcePolicy = riskSourcePolicy();
-    validateRiskContext(reviewData, context.sourcePolicy);
+    try { validateRiskContext(reviewData, context.sourcePolicy); } catch (error) { context.sourcePolicy.dispose(); throw error; }
   }
-  const rawFindings = context.dryRun
-    ? normalizeFindings(reviewData.findings)
-    : await findIssues(context, reviewData, focus);
-  const scoredFindings = context.reviewScoring === "agents"
-    ? context.dryRun
-      ? applyScores(rawFindings, reviewData.scores, context.reviewProfile === "risk")
-      : await scoreIssues(context, reviewData, rawFindings)
-    : rawFindings;
+  try {
+    const rawFindings = context.dryRun
+      ? normalizeFindings(reviewData.findings)
+      : await findIssues(context, reviewData, focus);
+    const scoredFindings = context.reviewScoring === "agents"
+      ? context.dryRun
+        ? applyScores(rawFindings, reviewData.scores, context.reviewProfile === "risk")
+        : await scoreIssues(context, reviewData, rawFindings)
+      : rawFindings;
 
-  if (context.reviewProfile === "risk") {
-    const metadataOnly = reviewData.diffs.filter(d => !d.diff).map(d => d.new_path || d.old_path);
-    if (metadataOnly.length) scoredFindings.limitations.push(`Metadata-only diff entries (rename, mode, empty or binary): ${metadataOnly.join(", ")}`);
-  }
-  if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} credential-bearing, symlink, submodule or oversized files.`);
-  for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
-  const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
-  const filtered = filterFindings(scoredFindings, threshold);
-  const postPlan = buildPostPlan(context, reviewData, filtered);
-
-  if (context.dryRun) {
-    const summary = formatSummary(context, reviewData.mr, filtered, postPlan);
-    const result = { dryRun: true, threshold, postPlan, summary };
-    logger.info(JSON.stringify(result, null, 2));
-    return result;
-  }
-
-  if (context.reviewProfile === "risk") {
-    const current = await fetchMergeRequest(context);
-    if (current.diff_refs?.head_sha !== reviewData.mr.diff_refs.head_sha) {
-      throw new Error("MR changed during review; findings were not posted. Trigger a new review.");
+    if (context.reviewProfile === "risk") {
+      const metadataOnly = reviewData.diffs.filter(d => !d.diff).map(d => d.new_path || d.old_path);
+      if (metadataOnly.length) scoredFindings.limitations.push(`Metadata-only diff entries (rename, mode, empty or binary): ${metadataOnly.join(", ")}`);
     }
-  }
-  const posted = await postReview(context, reviewData, filtered, postPlan);
-  return {
-    prompt: context.prompt,
-    branch: context.branch,
-    review: true,
-    head_sha: reviewData.mr.diff_refs?.head_sha,
-    trigger_note_id: context.triggerNoteId,
-    source_reads: context.verifiedSourceReads,
-    issues: filtered.issues.length,
-    suggestions: filtered.suggestions.length,
-    posted,
-  };
+    if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} TruffleHog-detected or structurally unsupported files.`);
+    for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
+    const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
+    const filtered = filterFindings(scoredFindings, threshold);
+    const postPlan = buildPostPlan(context, reviewData, filtered);
+
+    if (context.dryRun) {
+      const summary = formatSummary(context, reviewData.mr, filtered, postPlan);
+      const result = { dryRun: true, threshold, postPlan, summary };
+      logger.info(JSON.stringify(result, null, 2));
+      return result;
+    }
+
+    if (context.reviewProfile === "risk") {
+      const current = await fetchMergeRequest(context);
+      if (current.diff_refs?.head_sha !== reviewData.mr.diff_refs.head_sha) {
+        throw new Error("MR changed during review; findings were not posted. Trigger a new review.");
+      }
+    }
+    const posted = await postReview(context, reviewData, filtered, postPlan);
+    return {
+      prompt: context.prompt,
+      branch: context.branch,
+      review: true,
+      head_sha: reviewData.mr.diff_refs?.head_sha,
+      trigger_note_id: context.triggerNoteId,
+      source_reads: context.verifiedSourceReads,
+      issues: filtered.issues.length,
+      suggestions: filtered.suggestions.length,
+      posted,
+    };
+  } finally { context.sourcePolicy?.dispose?.(); }
 }
 
 async function prefetchReviewData(context) {
@@ -133,17 +135,28 @@ async function runJsonOpencode(context, prompt, filePath, label) {
   rmSync(filePath, { force: true });
   output = await runOpencode(
     context,
-    `${prompt}
-
----
-Your previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
+    context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\n\n---\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
     { captureOutput: true },
   );
   return parseModelJson(output, filePath, label);
 }
 
-function buildPrompt(name, context, reviewData, extras) {
+export function buildPrompt(name, context, reviewData, extras) {
   const template = readPrompt(context.reviewProfile === "risk" ? `risk-${name}` : name);
+  if (context.reviewProfile === "risk") {
+    const metadata = { project_id: context.projectId, project_path: context.projectPath, mr_iid: context.mrIid,
+      mode: context.reviewMode, profile: context.reviewProfile, scoring: context.reviewScoring, lang: context.reviewLang,
+      audience: context.reviewAudience, threshold: THRESHOLDS[context.reviewMode] || THRESHOLDS.strict,
+      passes: PROFILE_PASSES.risk, mr: reviewData.mr, notes: reviewData.notes, ...extras };
+    const strings = value => typeof value === "string" ? [value] : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
+    const parts = [{kind:"prompt", text: `${template}\n\n## Runner-provided GitLab context\n${JSON.stringify(metadata, null, 2)}\n`, raw:strings(metadata)}];
+    for (const diff of reviewData.diffs) {
+      const {diff: patch = "", ...metadata} = diff;
+      parts.push({kind:"prompt", text:`\nDiff metadata: ${JSON.stringify(metadata)}\n`, raw:strings(metadata)});
+      parts.push({kind:"source", paths:Object.freeze([...new Set([diff.old_path,diff.new_path].filter(Boolean))]), text:patch + "\n", raw:[patch.replace(/^[ +\-]/gm, "")]});
+    }
+    return promptBundle(parts);
+  }
   return `${template}
 
 ---
@@ -183,14 +196,14 @@ function readPrompt(name) {
 
 function parseModelJson(output, filePath, label) {
   if (existsSync(filePath)) {
-    return JSON.parse(readFileSync(filePath, "utf8"));
+    try { return JSON.parse(readFileSync(filePath, "utf8")); } catch { throw new Error(`Malformed ${label} JSON; raw output suppressed.`); }
   }
 
   try {
     return JSON.parse(output);
   } catch {
     const match = output.match(/```json\s*([\s\S]*?)```/i) || output.match(/({[\s\S]*})/);
-    if (match) return JSON.parse(match[1]);
+    if (match) { try { return JSON.parse(match[1]); } catch { throw new Error(`Malformed ${label} JSON; raw output suppressed.`); } }
   }
 
   throw new Error(`Could not parse ${label} JSON from opencode output`);

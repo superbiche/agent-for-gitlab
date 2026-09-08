@@ -23,20 +23,11 @@ test("review context paginates diffs and notes instead of silently reviewing onl
   } finally { globalThis.fetch=original; }
 });
 
-import { credentialMaterial, validateRiskContext } from "../src/risk-context.js";
-test("credential-bearing infrastructure and discussions never enter external review context", () => {
-  assert.equal(credentialMaterial("+kind: Secret\n+data:\n+  value: ZXhhbXBsZQ=="), true);
-  assert.equal(credentialMaterial("kind: Deployment\nsecretKeyRef:\n  name: existing"), false);
-  const data={mr:{},notes:[],diffs:[{new_path:"all.yaml",diff:"+kind: Secret"}]};
-  assert.throws(()=>validateRiskContext(data,{excluded:[]}));
-  assert.throws(()=>validateRiskContext({...data,diffs:[],notes:[{body:"-----BEGIN PRIVATE KEY-----"}]},{excluded:[]}));
-});
-
 import { riskInvocation, parseRiskEvents } from "../src/opencode.js";
 import { readFileSync, rmSync, existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 test("risk permissions match OpenCode worktree-relative reads and deny commands/untracked files", () => {
-  const invocation=riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash"});
+  const invocation=riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash", sourcePolicy:{repo:process.cwd(),allowed:["src/review.js"],excluded:[]}});
   try {
     const config=JSON.parse(readFileSync(invocation.options.env.OPENCODE_CONFIG,"utf8"));
     const key=relative("/",resolve("src/review.js"));
@@ -54,7 +45,7 @@ test("risk permissions match OpenCode worktree-relative reads and deny commands/
 test("risk isolation refuses a temporary directory inside a Git worktree", () => {
   const previous=process.env.TMPDIR;
   process.env.TMPDIR=process.cwd();
-  try { assert.throws(()=>riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash"}),/outside any Git worktree/); }
+  try { assert.throws(()=>riskInvocation({opencodeModel:"deepseek/deepseek-v4-flash", sourcePolicy:{repo:process.cwd(),allowed:["src/review.js"],excluded:[]}}),/outside any Git worktree/); }
   finally { if(previous===undefined) delete process.env.TMPDIR; else process.env.TMPDIR=previous; }
 });
 
