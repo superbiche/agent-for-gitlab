@@ -18,6 +18,10 @@ GitLab comment "@ai ..."
 
 There is no custom MCP server in the runner. GitLab reads/writes are done by Node through REST. `glab` is installed in the image for model-side read-only investigation during review, but posting is runner-owned.
 
+## Unicstay agent-authored MRs
+
+The opt-in `risk` profile adds evidence-focused second opinions with separate impact/confidence, exact-head summaries, complete independent scoring and restricted source-inspection tools. See [Unicstay deployment](docs/unicstay-review-deployment.md). StudioNet keeps its existing profiles.
+
 ## Review Flow
 
 `DIRECT_PROMPT` is routed to review only when it matches `^\s*review\b` case-insensitively. Everything else stays on the generic path.
@@ -58,7 +62,7 @@ Required CI variables:
 Review variables:
 
 - `REVIEW_MODE`: `loose`, `strict`, or `excessive`; default `strict`.
-- `REVIEW_PROFILE`: `quick`, `standard`, or `thorough`; default `standard`.
+- `REVIEW_PROFILE`: `quick`, `standard`, `thorough`, or `risk`; default `standard`.
 - `REVIEW_SCORING`: `global` or `agents`; default is `agents` when mode is `excessive`, otherwise `global`.
 - `REVIEW_LANG`: `en` or `fr`; default `en`.
 - `REVIEW_AUDIENCE`: `team`, `oss`, or `self`; default `team`.

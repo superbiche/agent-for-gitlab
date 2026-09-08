@@ -1,12 +1,15 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
+import { riskSourcePolicy, validateRiskContext } from "./risk-context.js";
 import { runOpencode } from "./opencode.js";
 import {
   fetchMergeRequest,
   fetchMergeRequestDiffs,
   fetchMergeRequestNotes,
+  fetchMergeRequestDiffStatus,
   postMergeRequestDiscussion,
   postMergeRequestNote,
 } from "./gitlab.js";
@@ -14,6 +17,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const THRESHOLDS = { loose: 80, strict: 60, excessive: 40 };
 const PROFILE_PASSES = {
+  risk: ["B", "D", "E", "G", "H", "I"],
   quick: ["B", "C", "D"],
   standard: ["B", "C", "D", "A", "E", "G", "H"],
   thorough: ["A", "B", "C", "D", "E", "F", "G", "H", "I"],
@@ -30,15 +34,30 @@ export async function runReview(context) {
 
   const focus = String(context.prompt || "").replace(/^\s*review\b/i, "").trim();
   const reviewData = context.dryRun ? loadDryRunData(context) : await prefetchReviewData(context);
+  if (!context.dryRun && context.reviewProfile === "risk") {
+    const head = reviewData.mr?.diff_refs?.head_sha;
+    if (!head || (context.pipelineSha && context.pipelineSha !== head)) {
+      throw new Error("MR head differs from the triggering pipeline; trigger a new review.");
+    }
+    execFileSync("git", ["checkout", "--detach", head], { stdio: "pipe" });
+    context.sourcePolicy = riskSourcePolicy();
+    validateRiskContext(reviewData, context.sourcePolicy);
+  }
   const rawFindings = context.dryRun
     ? normalizeFindings(reviewData.findings)
     : await findIssues(context, reviewData, focus);
   const scoredFindings = context.reviewScoring === "agents"
     ? context.dryRun
-      ? applyScores(rawFindings, reviewData.scores)
+      ? applyScores(rawFindings, reviewData.scores, context.reviewProfile === "risk")
       : await scoreIssues(context, reviewData, rawFindings)
     : rawFindings;
 
+  if (context.reviewProfile === "risk") {
+    const metadataOnly = reviewData.diffs.filter(d => !d.diff).map(d => d.new_path || d.old_path);
+    if (metadataOnly.length) scoredFindings.limitations.push(`Metadata-only diff entries (rename, mode, empty or binary): ${metadataOnly.join(", ")}`);
+  }
+  if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} credential-bearing, symlink, submodule or oversized files.`);
+  for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
   const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
   const filtered = filterFindings(scoredFindings, threshold);
   const postPlan = buildPostPlan(context, reviewData, filtered);
@@ -50,11 +69,20 @@ export async function runReview(context) {
     return result;
   }
 
+  if (context.reviewProfile === "risk") {
+    const current = await fetchMergeRequest(context);
+    if (current.diff_refs?.head_sha !== reviewData.mr.diff_refs.head_sha) {
+      throw new Error("MR changed during review; findings were not posted. Trigger a new review.");
+    }
+  }
   const posted = await postReview(context, reviewData, filtered, postPlan);
   return {
     prompt: context.prompt,
     branch: context.branch,
     review: true,
+    head_sha: reviewData.mr.diff_refs?.head_sha,
+    trigger_note_id: context.triggerNoteId,
+    source_reads: context.verifiedSourceReads,
     issues: filtered.issues.length,
     suggestions: filtered.suggestions.length,
     posted,
@@ -63,11 +91,13 @@ export async function runReview(context) {
 
 async function prefetchReviewData(context) {
   logger.start(`Fetching GitLab MR !${context.mrIid} review context`);
-  const [mr, diffs, notes] = await Promise.all([
+  const [mr, diffs, notes, diffStatus] = await Promise.all([
     fetchMergeRequest(context),
     fetchMergeRequestDiffs(context),
     fetchMergeRequestNotes(context),
+    context.reviewProfile === "risk" ? fetchMergeRequestDiffStatus(context) : null,
   ]);
+  if (context.reviewProfile === "risk") validateReviewDiffs(mr, diffs, diffStatus);
   return { mr, diffs, notes };
 }
 
@@ -77,6 +107,7 @@ async function findIssues(context, reviewData, focus) {
     outputPath: "/tmp/review-findings.json",
   });
   const parsed = await runJsonOpencode(context, prompt, "/tmp/review-findings.json", "findings");
+  if (context.reviewProfile === "risk") validateRiskFindings(parsed);
   return normalizeFindings(parsed);
 }
 
@@ -87,7 +118,7 @@ async function scoreIssues(context, reviewData, findings) {
     outputPath: "/tmp/review-scores.json",
   });
   const scores = await runJsonOpencode(context, prompt, "/tmp/review-scores.json", "scores");
-  return applyScores(findings, scores);
+  return applyScores(findings, scores, context.reviewProfile === "risk");
 }
 
 async function runJsonOpencode(context, prompt, filePath, label) {
@@ -112,7 +143,7 @@ Your previous ${label} output was malformed. Return only valid JSON matching the
 }
 
 function buildPrompt(name, context, reviewData, extras) {
-  const template = readPrompt(name);
+  const template = readPrompt(context.reviewProfile === "risk" ? `risk-${name}` : name);
   return `${template}
 
 ---
@@ -191,11 +222,14 @@ function normalizeFindings(input) {
   })).filter((suggestion) => suggestion.file || suggestion.description);
 
   const strengths = Array.isArray(source.strengths) ? source.strengths.filter(Boolean) : [];
-  return { issues, suggestions, strengths };
+  return { issues, suggestions, strengths, inspected: source.inspected || [], limitations: source.limitations || [] };
 }
 
-function applyScores(findings, scoreInput) {
+export function applyScores(findings, scoreInput, requireComplete = false) {
   const scoreList = Array.isArray(scoreInput) ? scoreInput : scoreInput?.scores || [];
+  if (requireComplete && (!Array.isArray(scoreInput?.scores) || scoreList.length !== findings.issues.length || new Set(scoreList.map(s => s.id)).size !== findings.issues.length || scoreList.some(s => !findings.issues.some(f => f.id === s.id) || !Number.isFinite(s.confidence) || s.confidence < 0 || s.confidence > 100))) {
+    throw new Error("SCORE must return one valid score for every candidate; refusing unverified findings.");
+  }
   const scoresById = new Map(scoreList.map((score, index) => [
     String(score.id || score.finding_id || index + 1),
     score,
@@ -232,7 +266,7 @@ function buildPostPlan(context, reviewData, findings) {
       line: finding.line_start,
       inline: Boolean(position),
       position,
-      body: formatInlineComment(finding),
+      body: formatInlineComment(finding, context),
     };
   });
 }
@@ -329,7 +363,8 @@ function findLineInPatch(patch, finding) {
   return null;
 }
 
-function formatInlineComment(finding) {
+function formatInlineComment(finding, context) {
+  if (context.reviewProfile === "risk") return `**${finding.severity_hint}: ${finding.title}** (confidence ${finding.confidence}/100)\n\n${finding.description}\n\n**Evidence:** ${finding.evidence}\n\n**Proposed remedy:** ${finding.suggestion}\n\n-- ${context.opencodeModel}`;
   const emoji = tierFor(finding.confidence).emoji;
   const evidence = finding.evidence ? `\n\n**Evidence**: ${finding.evidence}` : "";
   return `${emoji} **${finding.title}** (Confidence: ${finding.confidence}/100)
@@ -340,6 +375,7 @@ ${finding.description}${evidence}
 }
 
 function formatSummary(context, mr, findings, postPlan, noteLinks = []) {
+  if (context.reviewProfile === "risk") return formatRiskSummary(context, mr, findings, postPlan, noteLinks);
   const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
   const author = mr?.author?.username || context.author || "author";
   const intro = introLine(context, author);
@@ -435,10 +471,10 @@ function loadDryRunData(context) {
   const fixtureDir = resolve(__dirname, "..", "test", "fixtures");
   const mr = readFixture(context.dryRunFixtures.mr, join(fixtureDir, "mr.json"));
   const diffs = readFixture(context.dryRunFixtures.diffs, join(fixtureDir, "diffs.json"));
-  const findings = readFixture(context.dryRunFixtures.findings, join(fixtureDir, "findings.json"));
+  const findings = readFixture(context.dryRunFixtures.findings, join(fixtureDir, context.reviewProfile === "risk" ? "risk-findings.json" : "findings.json"));
   const scores = context.dryRunFixtures.scores && existsSync(context.dryRunFixtures.scores)
     ? readFixture(context.dryRunFixtures.scores)
-    : null;
+    : context.reviewProfile === "risk" ? readFixture(null, join(fixtureDir, "risk-scores.json")) : null;
   return { mr, diffs, notes: [], findings, scores };
 }
 
@@ -459,4 +495,28 @@ function clampConfidence(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+export function validateRiskFindings(value) {
+  if (!value || !Array.isArray(value.issues) || !Array.isArray(value.inspected) || !value.inspected.length || !Array.isArray(value.limitations)) throw new Error("Risk review requires issues, inspected surfaces and limitations arrays.");
+  const ids = new Set();
+  for (const f of value.issues) {
+    if (!f || typeof f.id !== "string" || ids.has(f.id) || !f.file || !Number.isInteger(f.line_start) || f.line_start < 1 || !["P1", "P2", "P3"].includes(f.severity_hint) || !f.title || !f.description || !f.evidence || !f.suggestion || !Number.isFinite(f.confidence) || f.confidence < 0 || f.confidence > 100) throw new Error("Risk review returned an incomplete finding.");
+    ids.add(f.id);
+  }
+}
+
+function formatRiskSummary(context, mr, findings, postPlan, noteLinks) {
+  const lines = ["## AI risk review", "", `Reviewed head: \`${mr.diff_refs?.head_sha}\``, `Trigger note: ${context.triggerNoteId || "unavailable"}`, `Pipeline: ${context.pipelineUrl || "unavailable"}`, `Model: ${context.opencodeModel} | Confidence threshold: ${THRESHOLDS[context.reviewMode]} | Scoring: ${context.reviewScoring}`, ""];
+  lines.push(findings.issues.length ? `**${findings.issues.length} finding(s) to triage.**` : "**No findings above the confidence threshold. This is not merge approval.**", "");
+  for (const f of findings.issues) lines.push(`- **${f.severity_hint}: ${f.title}** — ${linkForFinding(f, postPlan, noteLinks)} (confidence ${f.confidence}/100)`);
+  lines.push("", "### Inspected (model-reported)", "", ...findings.inspected.map(s => `- ${s}`));
+  lines.push("", "### Tool-verified source reads", "", ...(context.verifiedSourceReads?.length ? context.verifiedSourceReads.map(s => `- ${s}`) : ["- Dry-run fixture; no live source reads."]));
+  lines.push("", "### Limitations", "", ...(findings.limitations.length ? findings.limitations.map(s => `- ${s}`) : ["- Static review; no runtime verification unless explicitly evidenced above."]));
+  lines.push("", "Severity describes impact; confidence describes certainty. Verify each finding and its remedy against the deployed path before fixing. Architectural changes require operator ruling.", "", `-- ${context.opencodeModel}`);
+  return lines.join("\n");
+}
+
+export function validateReviewDiffs(mr, diffs, diffStatus) {
+  if (!mr.diff_refs?.head_sha || diffStatus?.overflow !== false || diffs.some(d => d.too_large || d.collapsed)) throw new Error("Incomplete GitLab diff context; review cannot claim completion.");
 }
