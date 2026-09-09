@@ -139,7 +139,8 @@ export function riskInvocation(context) {
     read[relative(permissionRoot, "/tmp/review-findings.json")] = "allow";
     read[relative(permissionRoot, "/tmp/review-scores.json")] = "allow";
     // The CLI spills large, already-approved tool results here. Keep access
-    // scoped to this invocation; adjacent state/config and the journal stay denied.
+    // scoped to this invocation’s subtree, trusting the pinned CLI to write regular
+    // files. Adjacent state/config and the journal stay denied by their own paths.
     read[relative(permissionRoot, join(isolationRoot, "data/opencode/tool-output/*"))] = "allow";
     const permission = { "*": "deny", read, glob: "allow", source_search: "allow", public_fetch: "allow", dependency_read: "allow", edit: { "*": "deny", [relative(permissionRoot, "/tmp/review-findings.json")]: "allow", [relative(permissionRoot, "/tmp/review-scores.json")]: "allow" }, external_directory: { "*": "deny", [`${repo}/**`]: "allow", "/tmp/*": "allow" } };
     const history = execFileSync("git", ["log", "-10", "--oneline", "--name-only"], { cwd: originalRepo, encoding: "utf8", maxBuffer: 1024 * 1024 });
