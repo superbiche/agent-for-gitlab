@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { investigationTools } from "../src/investigation.js";
+import { investigationTools, htmlText } from "../src/investigation.js";
+
+test("HTML extraction keeps prose and handles malformed script/tag runs without backtracking", () => {
+  assert.equal(htmlText('<script>hidden</script><h1>API</h1><p>x &lt; y</p><style>hidden</style>'), "API\nx < y");
+  assert.equal(htmlText("<script>".repeat(100000)), "");
+  assert.equal(htmlText("<".repeat(1000000)), "");
+});
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "investigation-test-"));
@@ -39,6 +45,8 @@ test("public evidence is scanned before exposure, hashed and bound to the final 
     await assert.rejects(blocked.fetch({ url: "https://docs.example" }), /TruffleHog/);
     const poisoned = investigationTools(p, join(p.root, "evidence"), { scan: (text, file) => file === "external.txt" ? [{}] : [], fetchText: async () => ({ url: "https://docs.example", text: "private", contentType: "text/plain" }) });
     await assert.rejects(poisoned.fetch({ url: "https://docs.example" }), /TruffleHog/);
+    const encoded = investigationTools(p, join(p.root, "evidence"), { scan: (text, file) => file === "external.txt" && text.includes("decoded < marker") ? [{}] : [], fetchText: async () => ({ url: "https://docs.example", text: "<p>decoded &lt; marker</p>", contentType: "text/html" }) });
+    await assert.rejects(encoded.fetch({ url: "https://docs.example" }), /TruffleHog/);
   } finally { p.dispose(); }
 });
 test("dependency reads use the reviewed lock commit and reject traversal or unsupported packages", async () => {

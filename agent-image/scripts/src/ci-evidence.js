@@ -72,12 +72,27 @@ export async function fetchCiEvidence(context, headSha) {
     }
     const report = await get(`${base}/test_report_summary`, `Pipeline ${detail.id} test report`);
     if (report && typeof report.total === "object" && report.total && Array.isArray(report.test_suites)) {
-      const counts = (item) => Object.fromEntries(["total_count", "success_count", "failed_count", "skipped_count", "error_count"]
-        .map((key) => [key, count(item?.[key])]));
-      pipeline.test_report = { ...counts(report.total), suites: report.test_suites.slice(0, 20)
-        .map((suite) => ({ name: text(suite.name), ...counts(suite) })) };
+      const keys = ["total_count", "success_count", "failed_count", "skipped_count", "error_count"];
+      const counts = (item, total = false) => Object.fromEntries(keys.map((key, index) =>
+        [key, count(item?.[total ? ["count", "success", "failed", "skipped", "error"][index] : key])]));
+      const totals = counts(report.total, true);
+      if (report.total.suite_error != null) {
+        limit(`Pipeline ${detail.id} test report has a suite error; test evidence unavailable.`);
+      } else {
+        const suites = report.test_suites.slice(0, 20).flatMap((suite) => {
+          if (!suite || typeof suite !== "object" || suite.suite_error != null) {
+            limit(`Pipeline ${detail.id} suite evidence unavailable because of a suite error or invalid entry.`);
+            return [];
+          }
+          const suiteCounts = counts(suite);
+          if (Object.values(suiteCounts).includes(null)) limit(`Pipeline ${detail.id} contains malformed suite counts; those counts unavailable.`);
+          return [{ name: text(suite.name), ...suiteCounts }];
+        });
+        pipeline.test_report = { ...totals, suites };
+        if (Object.values(totals).includes(null)) limit(`Pipeline ${detail.id} contains malformed total counts; those counts unavailable.`);
+        if (totals.total_count === 0) limit(`Pipeline ${detail.id} has no published test cases; test results unavailable.`);
+      }
       if (report.test_suites.length > 20) limit("Test suites truncated to twenty per pipeline.");
-      if (!report.total.total_count) limit(`Pipeline ${detail.id} has no published test cases; test results unavailable.`);
     } else limit(`Pipeline ${detail.id} published test report unavailable.`);
     result.pipelines.push(pipeline);
   }
