@@ -169,3 +169,5 @@ Official checksum source:
 https://github.com/trufflesecurity/trufflehog/releases/download/v3.97.0/trufflehog_3.97.0_checksums.txt
 
 Risk-profile read-only investigation includes approved-source content search, public HTTPS documentation, locked dependency source and exact-head published CI/test summaries. See [Unicstay investigation policy](docs/unicstay-review-deployment.md#read-only-investigation) for access boundaries and evidence limits.
+
+For risk-tool changes, also run `node agent-image/scripts/checks/investigation-runtime.mjs` from the repository root with OpenCode 1.18.18 and TruffleHog 3.97.0 available. This offline probe uses a local mock provider with the real CLI and image-owned tools; it verifies allowed source search/read, excluded-file and private-address denials, and absence of shell tools. Run the same probe in the built image from a committed fixture workspace before deployment.
