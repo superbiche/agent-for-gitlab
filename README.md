@@ -167,3 +167,5 @@ to its binary) and fails if unavailable; it uses generated nonfunctional fixture
 never live credentials or provider calls. Run that gate inside the built image too.
 Official checksum source:
 https://github.com/trufflesecurity/trufflehog/releases/download/v3.97.0/trufflehog_3.97.0_checksums.txt
+
+Risk-profile read-only investigation includes approved-source content search, public HTTPS documentation, locked dependency source and exact-head published CI/test summaries. See [Unicstay investigation policy](docs/unicstay-review-deployment.md#read-only-investigation) for access boundaries and evidence limits.

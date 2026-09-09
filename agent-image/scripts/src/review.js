@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
 import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-context.js";
 import { runOpencode } from "./opencode.js";
+import { fetchCiEvidence } from "./ci-evidence.js";
 import {
   fetchMergeRequest,
   fetchMergeRequestDiffs,
@@ -100,7 +101,8 @@ async function prefetchReviewData(context) {
     context.reviewProfile === "risk" ? fetchMergeRequestDiffStatus(context) : null,
   ]);
   if (context.reviewProfile === "risk") validateReviewDiffs(mr, diffs, diffStatus);
-  return { mr, diffs, notes };
+  const ciEvidence = context.reviewProfile === "risk" ? await fetchCiEvidence(context, mr.diff_refs.head_sha) : undefined;
+  return { mr, diffs, notes, ciEvidence };
 }
 
 async function findIssues(context, reviewData, focus) {
@@ -147,7 +149,7 @@ export function buildPrompt(name, context, reviewData, extras) {
     const metadata = { project_id: context.projectId, project_path: context.projectPath, mr_iid: context.mrIid,
       mode: context.reviewMode, profile: context.reviewProfile, scoring: context.reviewScoring, lang: context.reviewLang,
       audience: context.reviewAudience, threshold: THRESHOLDS[context.reviewMode] || THRESHOLDS.strict,
-      passes: PROFILE_PASSES.risk, mr: reviewData.mr, notes: reviewData.notes, ...extras };
+      passes: PROFILE_PASSES.risk, mr: reviewData.mr, notes: reviewData.notes, ci_evidence: reviewData.ciEvidence, ...extras };
     const strings = value => typeof value === "string" ? [value] : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
     const parts = [{kind:"prompt", text: `${template}\n\n## Runner-provided GitLab context\n${JSON.stringify(metadata, null, 2)}\n`, raw:strings(metadata)}];
     for (const diff of reviewData.diffs) {
@@ -525,6 +527,11 @@ function formatRiskSummary(context, mr, findings, postPlan, noteLinks) {
   for (const f of findings.issues) lines.push(`- **${f.severity_hint}: ${f.title}** — ${linkForFinding(f, postPlan, noteLinks)} (confidence ${f.confidence}/100)`);
   lines.push("", "### Inspected (model-reported)", "", ...findings.inspected.map(s => `- ${s}`));
   lines.push("", "### Tool-verified source reads", "", ...(context.verifiedSourceReads?.length ? context.verifiedSourceReads.map(s => `- ${s}`) : ["- Dry-run fixture; no live source reads."]));
+  if (context.investigationEvidence?.length) {
+    lines.push("", "### Tool-verified investigation", "", ...context.investigationEvidence.map(e => e.type === "search"
+      ? `- Source search ${JSON.stringify(e.text)} in ${JSON.stringify(e.path || "/")}: ${e.matches} matches, ${e.files_scanned} files inspected${e.truncated ? "; truncated, pagination required" : ""}.`
+      : `- Public source: ${e.url} (SHA-256 ${e.sha256}, ${e.bytes} bytes).`));
+  }
   lines.push("", "### Limitations", "", ...(findings.limitations.length ? findings.limitations.map(s => `- ${s}`) : ["- Static review; no runtime verification unless explicitly evidenced above."]));
   lines.push("", "Severity describes impact; confidence describes certainty. Verify each finding and its remedy against the deployed path before fixing. Architectural changes require operator ruling.", "", `-- ${context.opencodeModel}`);
   return lines.join("\n");
