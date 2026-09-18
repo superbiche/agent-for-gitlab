@@ -23,6 +23,9 @@ Note: on this GitLab (15.11), cross-project image pulls with job-payload credent
 
 Set these variables at the StudioNet group or project level. Values must be masked/protected according to StudioNet policy; do not commit values to the repo.
 
+The nyx webhook deployment currently uses `deepseek/deepseek-v4-flash` via the
+`OPENCODE_MODEL` key in the `ai-agent/ai-webhook-env` Kubernetes Secret.
+
 Required:
 
 - `AI_AGENT_IMAGE`: fork-built review image.
