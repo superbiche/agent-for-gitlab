@@ -6,8 +6,9 @@ import logger from "./logger.js";
 import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-context.js";
 import { runOpencode } from "./opencode.js";
 import { fetchCiEvidence } from "./ci-evidence.js";
-import { loadAdapter } from "./platforms/interface.js";
+import { loadAdapter, selectPlatform } from "./platforms/interface.js";
 import { buildGitLabPosition } from "./platforms/gitlab.js";
+import { buildGitHubPosition } from "./platforms/github.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const THRESHOLDS = { loose: 80, strict: 60, excessive: 40 };
@@ -57,7 +58,8 @@ export async function runReview(context) {
     const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
     const filtered = filterFindings(scoredFindings, threshold);
     const platform = await loadAdapter(context);
-    const postPlan = buildPostPlan(reviewData, filtered, context, platform.buildPosition || buildGitLabPosition);
+    const fallbackPosition = selectPlatform(context) === "github" ? buildGitHubPosition : buildGitLabPosition;
+    const postPlan = buildPostPlan(reviewData, filtered, context, platform.buildPosition || fallbackPosition);
 
     if (context.dryRun) {
       const summary = formatSummary(context, reviewData.mr, filtered, postPlan);
@@ -313,11 +315,11 @@ async function postReview(context, reviewData, findings, postPlan) {
 }
 
 export function buildDiffPosition(diffs, finding, diffRefs, context = { platform: "gitlab" }) {
-  // Synchronous: pure line-mapping, no I/O. The async loadAdapter seam is
-  // used for fetch/post paths; position mapping dispatches on platform here
-  // so the GitHub adapter can slot in next slice without touching callers.
-  if ((context.platform || "gitlab") === "github") {
-    throw new Error("GitHub platform adapter is not implemented yet");
+  // Synchronous: pure line-mapping, no I/O. Dispatches on platform so each
+  // adapter owns its position shape; async loadAdapter stays the seam for
+  // fetch/post paths.
+  if (selectPlatform(context) === "github") {
+    return buildGitHubPosition(diffs, finding, diffRefs);
   }
   return buildGitLabPosition(diffs, finding, diffRefs);
 }

@@ -9,6 +9,7 @@ import {
   addReactionToNote,
   getDiscussionThread,
 } from "./gitlab";
+import { dispatchAgentRun, addReaction as addGitHubReaction } from "./github";
 import { limitByUser } from "./limiter";
 import { logger } from "./logger";
 import type { WebhookPayload } from "./types";
@@ -344,6 +345,120 @@ app.post("/webhook", async (c) => {
     return c.json({ error: "Failed to trigger pipeline" }, 500);
   }
 });
+
+// GitHub webhook endpoint: issue_comment / pull_request_review_comment with
+// @ai trigger phrase -> repository_dispatch to the consumer repo workflow.
+app.post("/webhook/github", async (c) => {
+  const event = c.req.header("x-github-event");
+  const signature = c.req.header("x-hub-signature-256") || "";
+
+  logger.debug("GitHub webhook received", { event, hasSignature: !!signature });
+
+  const rawBody = await c.req.text();
+  if (!verifyGitHubSignature(rawBody, signature)) {
+    logger.warn("GitHub webhook unauthorized - invalid signature");
+    return c.text("unauthorized", 401);
+  }
+
+  if (event !== "issue_comment" && event !== "pull_request_review_comment") {
+    logger.debug("Ignoring non-comment GitHub event", { event });
+    return c.text("ignored");
+  }
+
+  const body = JSON.parse(rawBody) as {
+    action?: string;
+    comment?: { id: number; body?: string; user?: { login?: string } };
+    issue?: { number?: number; title?: string; pull_request?: unknown };
+    pull_request?: { number?: number };
+    repository?: { full_name?: string; default_branch?: string };
+  };
+
+  if (body.action !== "created") return c.text("ignored");
+
+  const note = body.comment?.body || "";
+  const authorLogin = body.comment?.user?.login || "";
+  const repoFullName = body.repository?.full_name || "";
+  const [owner, repo] = repoFullName.split("/");
+  const prNumber = body.issue?.pull_request || body.pull_request ? body.issue?.number : undefined;
+  const issueNumber = !prNumber ? body.issue?.number : undefined;
+
+  const triggerPhrase = process.env.TRIGGER_PHRASE || "@ai";
+  const triggerRegex = new RegExp(
+    `${triggerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+    "i"
+  );
+  if (!triggerRegex.test(note)) {
+    logger.debug(`No ${triggerPhrase} mention found in GitHub comment`);
+    return c.text("skipped");
+  }
+
+  if (process.env.AI_DISABLED === "true") {
+    logger.warn("Bot is disabled, skipping trigger");
+    return c.text("disabled");
+  }
+
+  if (process.env.AI_GITHUB_USERNAME && process.env.AI_GITHUB_USERNAME === authorLogin) {
+    logger.warn("Ignoring self-triggered GitHub comment");
+    return c.text("self-trigger");
+  }
+
+  const directMatch = note.match(new RegExp(`${triggerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(.*)`, "is"));
+  const command = directMatch ? directMatch[1].trim() : "";
+  if (process.env.REVIEW_ONLY === "true" && (!prNumber || !/^review\b/i.test(command))) {
+    return c.text("review-only: use @ai review on a pull request");
+  }
+
+  const key = `${authorLogin}:${repoFullName}:${prNumber || issueNumber || "general"}`;
+  if (!(await limitByUser(key))) {
+    logger.warn("Rate limit exceeded", { key, author: authorLogin });
+    return c.text("rate-limited");
+  }
+
+  const ref = body.repository?.default_branch || "main";
+  const variables = {
+    AI_PLATFORM: "github",
+    AI_TRIGGER: "true",
+    AI_AUTHOR: authorLogin,
+    AI_GITHUB_USERNAME: process.env.AI_GITHUB_USERNAME || "",
+    AI_RESOURCE_TYPE: prNumber ? "pull_request" : "issue",
+    AI_RESOURCE_ID: String(prNumber || issueNumber || ""),
+    AI_PROJECT_PATH: repoFullName,
+    AI_BRANCH: ref,
+    OPENCODE_MODEL: process.env.OPENCODE_MODEL || "azure/gpt-4.1",
+    OPENCODE_AGENT_PROMPT: process.env.OPENCODE_AGENT_PROMPT || "",
+    TRIGGER_PHRASE: triggerPhrase,
+    DIRECT_PROMPT: command,
+    AI_TRIGGER_NOTE_ID: String(body.comment?.id || ""),
+  };
+
+  try {
+    await dispatchAgentRun(owner, repo, variables);
+    logger.info("GitHub agent run dispatched", { repo: repoFullName, pr: prNumber, issue: issueNumber });
+    if (body.comment?.id) {
+      await addGitHubReaction({ owner, repo, commentId: body.comment.id, emoji: "+1" });
+    }
+    return c.json({ status: "started", repo: repoFullName, branch: ref });
+  } catch (error) {
+    logger.error("Failed to dispatch GitHub agent run", {
+      error: error instanceof Error ? error.message : error,
+      repo: repoFullName,
+    });
+    return c.json({ error: "Failed to dispatch agent run" }, 500);
+  }
+});
+
+function verifyGitHubSignature(rawBody: string, signature: string): boolean {
+  const secret = process.env.GITHUB_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET;
+  if (!secret) return false;
+  if (!signature.startsWith("sha256=")) return false;
+  const expected = signature.slice("sha256=".length);
+  // Lazy import keeps bun startup fast; node:crypto is always available.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHmac, timingSafeEqual } = require("node:crypto") as typeof import("node:crypto");
+  const digest = createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (digest.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(digest), Buffer.from(expected));
+}
 
 const port = Number(process.env.PORT) || 3000;
 logger.info(`GitLab AI Webhook Server starting on port ${port}`);

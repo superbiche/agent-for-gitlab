@@ -20,12 +20,17 @@ export function gitSetup(context) {
     });
   }
 
-  // Prepare credential approval input
+  // Prepare credential approval input. GitHub uses the x-access-token
+  // username convention; the token itself is never logged.
+  const gitPassword = context.platform === "github"
+    ? (context.githubToken || process.env.GITHUB_TOKEN)
+    : context.gitlabToken;
+  const gitUsername = context.platform === "github" ? "x-access-token" : context.username;
   const credentialInput = [
     "protocol=https",
     `host=${context.host}`,
-    `username=${context.username}`,
-    `password=${context.gitlabToken}`,
+    `username=${gitUsername}`,
+    `password=${gitPassword}`,
     "",
   ].join("\n");
 

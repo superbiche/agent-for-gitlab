@@ -20,12 +20,15 @@ export function validateProviderKeys() {
 
 export function validateConfig(context) {
   if (context.reviewProfile === "risk" && context.reviewScoring !== "agents") throw new Error("Risk reviews require independent scoring (REVIEW_SCORING=agents)");
-  if (context.platform === "github") throw new Error("GitHub platform adapter is not implemented yet (AI_PLATFORM=github)");
-  if (!context.dryRun && !context.gitlabToken) throw new Error("Missing GITLAB_TOKEN environment variable");
-  if (!context.dryRun && !context.projectId) throw new Error("Missing CI_PROJECT_ID environment variable");
-  
-  if (!context.dryRun && !context.projectPath) {
-    throw new Error("Missing project path. Set AI_PROJECT_PATH or CI_PROJECT_PATH (e.g. group/subgroup/project)");
+  if (context.platform === "github") {
+    if (!context.dryRun && !context.githubToken && !process.env.GITHUB_TOKEN) throw new Error("Missing GITHUB_TOKEN environment variable");
+    if (!context.dryRun && !context.projectPath) throw new Error("Missing project path. Set AI_PROJECT_PATH to owner/repo");
+  } else {
+    if (!context.dryRun && !context.gitlabToken) throw new Error("Missing GITLAB_TOKEN environment variable");
+    if (!context.dryRun && !context.projectId) throw new Error("Missing CI_PROJECT_ID environment variable");
+    if (!context.dryRun && !context.projectPath) {
+      throw new Error("Missing project path. Set AI_PROJECT_PATH or CI_PROJECT_PATH (e.g. group/subgroup/project)");
+    }
   }
   
   if (!context.dryRun && !context.opencodeModel) {

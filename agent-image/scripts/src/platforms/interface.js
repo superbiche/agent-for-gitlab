@@ -27,9 +27,7 @@ export function selectPlatform(context) {
 export async function loadAdapter(context) {
   const name = selectPlatform(context);
   if (name === "github") {
-    // GitHub adapter lands in the next slice; fail loudly rather than
-    // silently running GitLab calls against a GitHub context.
-    throw new Error("GitHub platform adapter is not implemented yet");
+    return import("./github.js");
   }
   return import("./gitlab.js");
 }

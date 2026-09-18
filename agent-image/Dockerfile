@@ -2,6 +2,7 @@ ARG NODE_IMAGE=node:22-bookworm-slim
 FROM ${NODE_IMAGE}
 
 ARG GLAB_VERSION=1.102.0
+ARG GH_VERSION=2.101.0
 ARG OPENCODE_AI_VERSION=1.18.18
 
 LABEL org.opencontainers.image.source="https://github.com/Schickli/ai-code-for-gitlab" \
@@ -14,6 +15,9 @@ RUN apt-get update \
 	&& curl -fsSL -o /tmp/glab.deb "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.deb" \
 	&& dpkg -i /tmp/glab.deb \
 	&& rm -f /tmp/glab.deb \
+	&& curl -fsSL -o /tmp/gh.deb "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
+	&& dpkg -i /tmp/gh.deb \
+	&& rm -f /tmp/gh.deb \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Match the managed local pre-commit scanner; checksum from the official release.

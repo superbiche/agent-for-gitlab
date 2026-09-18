@@ -1,7 +1,65 @@
 import { gitlabApi } from "./gitlab.js";
+import { githubApi } from "./platforms/github.js";
 
 // Published reports only: no traces, artifacts, variables or test execution.
 export async function fetchCiEvidence(context, headSha) {
+  if ((context.platform || "gitlab") === "github") return fetchGitHubChecks(context, headSha);
+  return fetchGitLabPipelines(context, headSha);
+}
+
+async function fetchGitHubChecks(context, headSha) {
+  const result = { fetched_at: new Date().toISOString(), head_sha: headSha,
+    runs: [], limitations: ["Published GitHub Actions check evidence only; tests were not rerun."] };
+  const limit = (message) => { if (!result.limitations.includes(message)) result.limitations.push(message); };
+  if (!/^[a-f0-9]{40}$/i.test(headSha || "") || !/^[\w.-]+\/[\w.-]+$/.test(context.projectPath || "")) {
+    result.head_sha = null;
+    limit("Invalid repository or reviewed SHA; CI evidence unavailable.");
+    return result;
+  }
+  const repo = context.projectPath;
+  const text = (value) => {
+    if (typeof value !== "string") return null;
+    if (value.length > 300) limit("Long report fields truncated to 300 characters.");
+    return value.slice(0, 300);
+  };
+  const url = (value) => {
+    try {
+      const candidate = new URL(value);
+      if (candidate.origin !== "https://github.com" || candidate.username || candidate.password) return null;
+      candidate.search = ""; candidate.hash = "";
+      return text(candidate.href);
+    } catch { return null; }
+  };
+  const get = async (path, label) => {
+    try { return await githubApi(context, "GET", path); }
+    catch { limit(`${label} retrieval failed; evidence unavailable.`); return null; }
+  };
+  const currentRun = String(context.pipelineId ?? process.env.GITHUB_RUN_ID ?? "");
+  const suites = await get(`/repos/${repo}/commits/${headSha}/check-suites?per_page=20`, "Check suites");
+  const suiteIds = Array.isArray(suites?.check_suites)
+    ? suites.check_suites.filter((s) => s?.head_sha === headSha).slice(0, 3).map((s) => s.id)
+    : [];
+  if (!suites || !Array.isArray(suites.check_suites)) limit("Check suites incomplete or invalid.");
+  for (const suiteId of suiteIds) {
+    const runs = await get(`/repos/${repo}/check-suites/${suiteId}/check-runs?per_page=20`, `Check suite ${suiteId} runs`);
+    for (const run of (runs?.check_runs || []).slice(0, 20)) {
+      if (run.head_sha !== headSha) { limit("Out-of-scope or invalid check run omitted."); continue; }
+      if (String(run.id) === currentRun) { limit("Current review workflow excluded."); continue; }
+      if (result.runs.some((r) => r.id === run.id)) continue;
+      if (result.runs.length === 20) { limit("Check evidence truncated to twenty runs."); break; }
+      result.runs.push({ id: run.id, name: text(run.name), status: text(run.status),
+        conclusion: text(run.conclusion), web_url: url(run.html_url || run.details_url) });
+    }
+  }
+  if (!result.runs.length) limit("No eligible check runs available for the reviewed SHA.");
+  while (Buffer.byteLength(JSON.stringify(result)) > 32768 && result.runs.length) {
+    limit("CI evidence truncated to the 32 KiB serialized output limit.");
+    result.runs.pop();
+  }
+  return result;
+}
+
+async function fetchGitLabPipelines(context, headSha) {
   const result = { fetched_at: new Date().toISOString(), head_sha: headSha,
     pipelines: [], limitations: ["Published GitLab CI evidence only; tests were not rerun."] };
   const limit = (message) => { if (!result.limitations.includes(message)) result.limitations.push(message); };

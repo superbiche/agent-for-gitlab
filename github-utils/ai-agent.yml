@@ -1,0 +1,55 @@
+# GitHub Actions workflow for the @ai agent.
+# The webhook app dispatches a repository_dispatch event (type: ai-agent)
+# when a PR/issue comment mentions @ai. This workflow runs the same
+# agent-image as the GitLab CI job and the runner posts back via REST.
+#
+# Required repository secrets/variables:
+# - AI_AGENT_IMAGE: fork-built agent image (ghcr.io/<owner>/<repo>/agent-image)
+# - OPENCODE_MODEL: provider/model, for example deepseek/<model-id>
+# - Provider key for the selected model (e.g. DEEPSEEK_API_KEY)
+# - GITHUB_TOKEN is provided automatically; for private repos or
+#   cross-repo dispatch use a fine-grained PAT with contents+pull-requests write.
+#
+# Review-mode variables mirror gitlab-utils/.gitlab-ci.yml:
+# - REVIEW_MODE / REVIEW_PROFILE / REVIEW_SCORING / REVIEW_LANG / REVIEW_AUDIENCE
+
+name: ai-agent
+
+on:
+  repository_dispatch:
+    types: [ai-agent]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  ai_webhook_handler:
+    if: ${{ github.event.client_payload.trigger == 'ai' }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ secrets.AI_AGENT_IMAGE }}
+    env:
+      AI_PLATFORM: ${{ github.event.client_payload.AI_PLATFORM }}
+      AI_AUTHOR: ${{ github.event.client_payload.AI_AUTHOR }}
+      AI_GITHUB_USERNAME: ${{ github.event.client_payload.AI_GITHUB_USERNAME }}
+      AI_RESOURCE_TYPE: ${{ github.event.client_payload.AI_RESOURCE_TYPE }}
+      AI_RESOURCE_ID: ${{ github.event.client_payload.AI_RESOURCE_ID }}
+      AI_PROJECT_PATH: ${{ github.event.client_payload.AI_PROJECT_PATH }}
+      AI_BRANCH: ${{ github.event.client_payload.AI_BRANCH }}
+      AI_TRIGGER_NOTE_ID: ${{ github.event.client_payload.AI_TRIGGER_NOTE_ID }}
+      DIRECT_PROMPT: ${{ github.event.client_payload.DIRECT_PROMPT }}
+      OPENCODE_MODEL: ${{ github.event.client_payload.OPENCODE_MODEL }}
+      OPENCODE_AGENT_PROMPT: ${{ github.event.client_payload.OPENCODE_AGENT_PROMPT }}
+      TRIGGER_PHRASE: ${{ github.event.client_payload.TRIGGER_PHRASE }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Review tuning (override per repo via variables):
+      REVIEW_MODE: ${{ vars.REVIEW_MODE }}
+      REVIEW_PROFILE: ${{ vars.REVIEW_PROFILE }}
+      REVIEW_SCORING: ${{ vars.REVIEW_SCORING }}
+      REVIEW_LANG: ${{ vars.REVIEW_LANG }}
+      REVIEW_AUDIENCE: ${{ vars.REVIEW_AUDIENCE }}
+    steps:
+      - name: Run AI agent
+        run: ai-runner
