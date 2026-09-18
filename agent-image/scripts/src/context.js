@@ -14,8 +14,10 @@ export function buildContext() {
   const reviewScoringDefault = reviewMode === "excessive" || reviewProfile === "risk" ? "agents" : "global";
   const resourceType = process.env.AI_RESOURCE_TYPE;
   const resourceId = process.env.AI_RESOURCE_ID;
+  const platform = normalizeChoice(process.env.AI_PLATFORM, ["gitlab", "github"], "gitlab");
 
   return {
+    platform,
     projectPath: process.env.AI_PROJECT_PATH,
     author: process.env.AI_AUTHOR,
     resourceType,

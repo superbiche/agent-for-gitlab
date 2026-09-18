@@ -20,6 +20,7 @@ export function validateProviderKeys() {
 
 export function validateConfig(context) {
   if (context.reviewProfile === "risk" && context.reviewScoring !== "agents") throw new Error("Risk reviews require independent scoring (REVIEW_SCORING=agents)");
+  if (context.platform === "github") throw new Error("GitHub platform adapter is not implemented yet (AI_PLATFORM=github)");
   if (!context.dryRun && !context.gitlabToken) throw new Error("Missing GITLAB_TOKEN environment variable");
   if (!context.dryRun && !context.projectId) throw new Error("Missing CI_PROJECT_ID environment variable");
   

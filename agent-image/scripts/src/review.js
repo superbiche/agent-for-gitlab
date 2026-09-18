@@ -6,14 +6,8 @@ import logger from "./logger.js";
 import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-context.js";
 import { runOpencode } from "./opencode.js";
 import { fetchCiEvidence } from "./ci-evidence.js";
-import {
-  fetchMergeRequest,
-  fetchMergeRequestDiffs,
-  fetchMergeRequestNotes,
-  fetchMergeRequestDiffStatus,
-  postMergeRequestDiscussion,
-  postMergeRequestNote,
-} from "./gitlab.js";
+import { loadAdapter } from "./platforms/interface.js";
+import { buildGitLabPosition } from "./platforms/gitlab.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const THRESHOLDS = { loose: 80, strict: 60, excessive: 40 };
@@ -62,7 +56,8 @@ export async function runReview(context) {
     for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
     const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
     const filtered = filterFindings(scoredFindings, threshold);
-    const postPlan = buildPostPlan(context, reviewData, filtered);
+    const platform = await loadAdapter(context);
+    const postPlan = buildPostPlan(reviewData, filtered, context, platform.buildPosition || buildGitLabPosition);
 
     if (context.dryRun) {
       const summary = formatSummary(context, reviewData.mr, filtered, postPlan);
@@ -72,7 +67,8 @@ export async function runReview(context) {
     }
 
     if (context.reviewProfile === "risk") {
-      const current = await fetchMergeRequest(context);
+      const platform = await loadAdapter(context);
+      const current = await platform.fetchMergeRequest(context);
       if (current.diff_refs?.head_sha !== reviewData.mr.diff_refs.head_sha) {
         throw new Error("MR changed during review; findings were not posted. Trigger a new review.");
       }
@@ -93,12 +89,13 @@ export async function runReview(context) {
 }
 
 async function prefetchReviewData(context) {
-  logger.start(`Fetching GitLab MR !${context.mrIid} review context`);
+  const platform = await loadAdapter(context);
+  logger.start(`Fetching ${context.platform === "github" ? "GitHub PR" : "GitLab MR"} !${context.mrIid} review context`);
   const [mr, diffs, notes, diffStatus] = await Promise.all([
-    fetchMergeRequest(context),
-    fetchMergeRequestDiffs(context),
-    fetchMergeRequestNotes(context),
-    context.reviewProfile === "risk" ? fetchMergeRequestDiffStatus(context) : null,
+    platform.fetchMergeRequest(context),
+    platform.fetchMergeRequestDiffs(context),
+    platform.fetchMergeRequestNotes(context),
+    context.reviewProfile === "risk" ? platform.fetchMergeRequestDiffStatus(context) : null,
   ]);
   if (context.reviewProfile === "risk") validateReviewDiffs(mr, diffs, diffStatus);
   const ciEvidence = context.reviewProfile === "risk" ? await fetchCiEvidence(context, mr.diff_refs.head_sha) : undefined;
@@ -271,10 +268,10 @@ function filterFindings(findings, threshold) {
   };
 }
 
-function buildPostPlan(context, reviewData, findings) {
+function buildPostPlan(reviewData, findings, context, buildPosition) {
   const diffRefs = reviewData.mr?.diff_refs || {};
   return findings.issues.map((finding, index) => {
-    const position = buildDiffPosition(reviewData.diffs, finding, diffRefs);
+    const position = buildPosition(reviewData.diffs, finding, diffRefs);
     return {
       index,
       file: finding.file,
@@ -287,19 +284,20 @@ function buildPostPlan(context, reviewData, findings) {
 }
 
 async function postReview(context, reviewData, findings, postPlan) {
+  const platform = await loadAdapter(context);
   const noteLinks = [];
   for (const plan of postPlan) {
     let response = null;
     try {
       if (plan.position) {
-        response = await postMergeRequestDiscussion(context, context.mrIid, plan.body, plan.position);
+        response = await platform.postMergeRequestDiscussion(context, context.mrIid, plan.body, plan.position);
       }
     } catch (error) {
       logger.warn(`Inline note failed for ${plan.file}:L${plan.line}; falling back to MR note: ${error.message}`);
     }
 
     if (!response) {
-      response = await postMergeRequestNote(context, context.mrIid, `${plan.body}\n\n${plan.file}:L${plan.line}`);
+      response = await platform.postMergeRequestNote(context, context.mrIid, `${plan.body}\n\n${plan.file}:L${plan.line}`);
     }
 
     const noteId = response?.notes?.[0]?.id || response?.id;
@@ -307,75 +305,21 @@ async function postReview(context, reviewData, findings, postPlan) {
   }
 
   const summary = formatSummary(context, reviewData.mr, findings, postPlan, noteLinks);
-  const summaryResponse = await postMergeRequestNote(context, context.mrIid, summary);
+  const summaryResponse = await platform.postMergeRequestNote(context, context.mrIid, summary);
   return {
     inline_or_fallback_notes: noteLinks.length,
     summary_note_id: summaryResponse?.id,
   };
 }
 
-export function buildDiffPosition(diffs, finding, diffRefs) {
-  const diff = (diffs || []).find((candidate) => {
-    return candidate.new_path === finding.file || candidate.old_path === finding.file;
-  });
-  if (!diff || !diff.diff || !diffRefs?.base_sha || !diffRefs?.head_sha || !diffRefs?.start_sha) {
-    return null;
+export function buildDiffPosition(diffs, finding, diffRefs, context = { platform: "gitlab" }) {
+  // Synchronous: pure line-mapping, no I/O. The async loadAdapter seam is
+  // used for fetch/post paths; position mapping dispatches on platform here
+  // so the GitHub adapter can slot in next slice without touching callers.
+  if ((context.platform || "gitlab") === "github") {
+    throw new Error("GitHub platform adapter is not implemented yet");
   }
-
-  const line = findLineInPatch(diff.diff, finding);
-  if (!line) return null;
-
-  const position = {
-    position_type: "text",
-    base_sha: diffRefs.base_sha,
-    head_sha: diffRefs.head_sha,
-    start_sha: diffRefs.start_sha,
-    old_path: diff.old_path || finding.file,
-    new_path: diff.new_path || finding.file,
-  };
-
-  if (line.old_line) position.old_line = line.old_line;
-  if (line.new_line) position.new_line = line.new_line;
-  return position;
-}
-
-function findLineInPatch(patch, finding) {
-  let oldLine = 0;
-  let newLine = 0;
-  const targetNew = numberOrNull(finding.line_start);
-  const targetOld = numberOrNull(finding.old_line);
-
-  for (const rawLine of patch.split("\n")) {
-    const hunk = rawLine.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      oldLine = Number(hunk[1]);
-      newLine = Number(hunk[2]);
-      continue;
-    }
-
-    if (!rawLine || rawLine.startsWith("\\ No newline")) continue;
-    const prefix = rawLine[0];
-
-    if (prefix === "+") {
-      if (newLine === targetNew) return { new_line: newLine };
-      newLine += 1;
-      continue;
-    }
-
-    if (prefix === "-") {
-      if (targetOld && oldLine === targetOld) return { old_line: oldLine };
-      oldLine += 1;
-      continue;
-    }
-
-    if ((targetOld && oldLine === targetOld) || newLine === targetNew) {
-      return { old_line: oldLine, new_line: newLine };
-    }
-    oldLine += 1;
-    newLine += 1;
-  }
-
-  return null;
+  return buildGitLabPosition(diffs, finding, diffRefs);
 }
 
 function formatInlineComment(finding, context) {

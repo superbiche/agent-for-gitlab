@@ -1,6 +1,6 @@
 import logger from "./logger.js";
 import { buildContext } from "./context.js";
-import { postComment } from "./gitlab.js";
+import { loadAdapter, selectPlatform } from "./platforms/interface.js";
 import { isInsideGitRepo, setupLocalRepository, ensureBranch } from "./git.js";
 import { validateProviderKeys, validateConfig } from "./config.js";
 import { runOpencode } from "./opencode.js";
@@ -19,6 +19,8 @@ export async function run() {
 
   try {
     validateConfig(context);
+    const platform = await loadAdapter(context);
+    logger.info(`Platform: ${selectPlatform(context)}`);
 
     if (context.dryRun && isReviewRequest(context.prompt)) {
       const reviewResult = await runReview(context);
@@ -54,7 +56,7 @@ export async function run() {
     } else {
       const output = await runOpencode(context, context.prompt, { captureOutput: true });
       const message = output.trim() || "opencode completed without a textual response.";
-      await postComment(context, message);
+      await platform.postComment(context, message);
       writeOutput(true, {
         prompt: context.prompt,
         branch: context.branch,
@@ -73,12 +75,18 @@ export async function run() {
 async function handleError(context, error) {
   logger.error(error.message);
   if (!context.dryRun) {
-    await postComment(
-      context,
-      `❌ AI encountered an error:\n\n` +
-      `\`\`\`\n${error.message}\n\`\`\`\n\n` +
-      `Please check the pipeline logs for details.`,
-    );
+    // Best effort: error replies must never mask the original failure.
+    try {
+      const platform = await loadAdapter(context);
+      await platform.postComment(
+        context,
+        `❌ AI encountered an error:\n\n` +
+        `\`\`\`\n${error.message}\n\`\`\`\n\n` +
+        `Please check the pipeline logs for details.`,
+      );
+    } catch (postError) {
+      logger.error(`Failed to post error comment: ${postError.message}`);
+    }
   }
   writeOutput(false, { error: error.message });
   process.exit(1);
