@@ -1,4 +1,5 @@
 import logger from "../logger.js";
+import { fetchWithRetry, causeSummary } from "./http.js";
 
 // GitHub platform adapter. Same contract as platforms/gitlab.js (see
 // platforms/interface.js). Auth is a fine-grained PAT or GitHub App token via
@@ -30,11 +31,20 @@ export async function githubApi(context, method, path, data = null) {
   };
   const auth = token(context);
   if (auth) headers.Authorization = `Bearer ${auth}`;
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-  });
+  let response;
+  try {
+    response = await fetchWithRetry(
+      url,
+      {
+        method,
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+      },
+      { label: `GitHub ${method} ${path}` },
+    );
+  } catch (error) {
+    throw new Error(`GitHub ${method} ${path}: ${causeSummary(error)}`, { cause: error.cause ?? error });
+  }
 
   const body = await response.text();
   if (!response.ok) {
@@ -80,7 +90,7 @@ export async function postComment(context, message) {
     logger.info(`Posted comment to ${context.resourceType} #${number}`);
     return response;
   } catch (error) {
-    logger.error(`Failed to post comment: ${error.message}`);
+    logger.error(`Failed to post comment: ${causeSummary(error)}`);
     return null;
   }
 }

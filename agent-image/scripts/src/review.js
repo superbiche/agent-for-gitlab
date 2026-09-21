@@ -7,6 +7,7 @@ import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-cont
 import { runOpencode } from "./opencode.js";
 import { fetchCiEvidence } from "./ci-evidence.js";
 import { loadAdapter, selectPlatform } from "./platforms/interface.js";
+import { causeSummary } from "./platforms/http.js";
 import { buildGitLabPosition } from "./platforms/gitlab.js";
 import { buildGitHubPosition } from "./platforms/github.js";
 
@@ -295,7 +296,7 @@ async function postReview(context, reviewData, findings, postPlan) {
         response = await platform.postMergeRequestDiscussion(context, context.mrIid, plan.body, plan.position);
       }
     } catch (error) {
-      logger.warn(`Inline note failed for ${plan.file}:L${plan.line}; falling back to MR note: ${error.message}`);
+      logger.warn(`Inline note failed for ${plan.file}:L${plan.line}; falling back to MR note: ${causeSummary(error)}`);
     }
 
     if (!response) {

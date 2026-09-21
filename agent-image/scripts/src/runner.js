@@ -1,6 +1,7 @@
 import logger from "./logger.js";
 import { buildContext } from "./context.js";
 import { loadAdapter, selectPlatform } from "./platforms/interface.js";
+import { causeSummary } from "./platforms/http.js";
 import { isInsideGitRepo, setupLocalRepository, ensureBranch } from "./git.js";
 import { validateProviderKeys, validateConfig } from "./config.js";
 import { runOpencode } from "./opencode.js";
@@ -73,7 +74,7 @@ export async function run() {
 }
 
 async function handleError(context, error) {
-  logger.error(error.message);
+  logger.error(causeSummary(error));
   if (!context.dryRun) {
     // Best effort: error replies must never mask the original failure.
     try {
@@ -81,13 +82,13 @@ async function handleError(context, error) {
       await platform.postComment(
         context,
         `❌ AI encountered an error:\n\n` +
-        `\`\`\`\n${error.message}\n\`\`\`\n\n` +
+        `\`\`\`\n${causeSummary(error)}\n\`\`\`\n\n` +
         `Please check the pipeline logs for details.`,
       );
     } catch (postError) {
-      logger.error(`Failed to post error comment: ${postError.message}`);
+      logger.error(`Failed to post error comment: ${causeSummary(postError)}`);
     }
   }
-  writeOutput(false, { error: error.message });
+  writeOutput(false, { error: causeSummary(error) });
   process.exit(1);
 }

@@ -1,16 +1,28 @@
 import logger from "../logger.js";
+import { fetchWithRetry, causeSummary } from "./http.js";
 
 export async function gitlabApi(context, method, path, data = null) {
   const baseUrl = context.apiUrl || `${context.serverUrl}/api/v4`;
   const url = new URL(`${baseUrl.replace(/\/$/, "")}${path}`);
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "PRIVATE-TOKEN": context.gitlabToken,
-      "Content-Type": "application/json",
-    },
-    body: data ? JSON.stringify(data) : undefined,
-  });
+  let response;
+  try {
+    response = await fetchWithRetry(
+      url,
+      {
+        method,
+        headers: {
+          "PRIVATE-TOKEN": context.gitlabToken,
+          "Content-Type": "application/json",
+        },
+        body: data ? JSON.stringify(data) : undefined,
+      },
+      { label: `GitLab ${method} ${path}` },
+    );
+  } catch (error) {
+    // Network failure after retry: keep the cause chain visible so the next
+    // "fetch failed" is diagnosable instead of a bare TypeError message.
+    throw new Error(`GitLab ${method} ${path}: ${causeSummary(error)}`, { cause: error.cause ?? error });
+  }
 
   const body = await response.text();
   if (!response.ok) {
@@ -43,7 +55,7 @@ export async function postComment(context, message) {
     );
     return response;
   } catch (error) {
-    logger.error(`Failed to post comment: ${error.message}`);
+    logger.error(`Failed to post comment: ${causeSummary(error)}`);
     return null;
   }
 }
