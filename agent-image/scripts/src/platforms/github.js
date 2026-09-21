@@ -144,13 +144,13 @@ export async function postMergeRequestDiscussion(context, number, body, position
   return githubApi(context, "POST", `/repos/${repoPath(context)}/pulls/${pr}/comments`, payload);
 }
 
-async function paginated(context, path) {
+async function paginated(context, path, perPage = 100) {
   const items = [];
   for (let page = 1; page <= 100; page++) {
-    const batch = await githubApi(context, "GET", `${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`);
+    const batch = await githubApi(context, "GET", `${path}${path.includes("?") ? "&" : "?"}per_page=${perPage}&page=${page}`);
     if (!Array.isArray(batch)) throw new Error("Invalid GitHub list response");
     items.push(...batch);
-    if (batch.length < 100) return items;
+    if (batch.length < perPage) return items;
   }
   throw new Error("GitHub pagination limit reached; context is incomplete");
 }

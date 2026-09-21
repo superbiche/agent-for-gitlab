@@ -14,12 +14,14 @@ test("independent scoring refuses missing, duplicated and foreign scores", () =>
 test("review context paginates diffs and notes instead of silently reviewing only page one", async () => {
   const original=globalThis.fetch;
   const requests=[];
-  globalThis.fetch=async url=> { requests.push(String(url)); return new Response(JSON.stringify(new URL(url).searchParams.get("page")==="1" ? Array.from({length:100},(_,id)=>({id})) : [{id:100}])); };
+  const pageSize=url=>Number(new URL(url).searchParams.get("per_page"));
+  globalThis.fetch=async url=> { requests.push(String(url)); const size=pageSize(url); return new Response(JSON.stringify(new URL(url).searchParams.get("page")==="1" ? Array.from({length:size},(_,id)=>({id})) : [{id:size}])); };
   try {
     const context={serverUrl:"https://gitlab.example",projectId:7,mrIid:1};
-    assert.equal((await fetchMergeRequestDiffs(context)).length,101);
+    assert.equal((await fetchMergeRequestDiffs(context)).length,31);
     assert.equal((await fetchMergeRequestNotes(context)).length,101);
     assert.equal(requests.length,4);
+    assert.ok(requests.filter(u=>u.includes("/diffs")).every(u=>u.includes("per_page=30")));
   } finally { globalThis.fetch=original; }
 });
 
