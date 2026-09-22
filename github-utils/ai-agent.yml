@@ -28,8 +28,6 @@ jobs:
   ai_webhook_handler:
     if: ${{ github.event.client_payload.trigger == 'ai' }}
     runs-on: ubuntu-latest
-    container:
-      image: ${{ secrets.AI_AGENT_IMAGE }}
     env:
       # Static on the GitHub path — the webhook dispatch payload is capped at
       # 10 client_payload properties (see gitlab-app/src/index.ts), so these
@@ -46,6 +44,11 @@ jobs:
       OPENCODE_MODEL: ${{ github.event.client_payload.OPENCODE_MODEL }}
       OPENCODE_AGENT_PROMPT: ${{ github.event.client_payload.OPENCODE_AGENT_PROMPT }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # NOTE: no `container:` block — `container.image` does not support the
+      # secrets context, so referencing ${{ secrets.AI_AGENT_IMAGE }} there
+      # silently startup-fails every run (observed 2026-09-22). Resolve the
+      # image in env and docker-run it in the step instead.
+      AI_AGENT_IMAGE: ${{ secrets.AI_AGENT_IMAGE }}
       # Review tuning (override per repo via variables):
       REVIEW_MODE: ${{ vars.REVIEW_MODE }}
       REVIEW_PROFILE: ${{ vars.REVIEW_PROFILE }}
@@ -54,4 +57,17 @@ jobs:
       REVIEW_AUDIENCE: ${{ vars.REVIEW_AUDIENCE }}
     steps:
       - name: Run AI agent
-        run: ai-runner
+        shell: bash
+        run: |
+          docker pull "$AI_AGENT_IMAGE"
+          # Consumers: add `-e <PROVIDER>_API_KEY` for your OPENCODE_MODEL
+          # provider (e.g. DEEPSEEK_API_KEY) and declare it in env above.
+          docker run --rm \
+            -e AI_PLATFORM -e AI_GITHUB_USERNAME -e AI_AUTHOR \
+            -e AI_RESOURCE_TYPE -e AI_RESOURCE_ID -e AI_PROJECT_PATH \
+            -e AI_BRANCH -e AI_TRIGGER_NOTE_ID -e DIRECT_PROMPT \
+            -e OPENCODE_MODEL -e OPENCODE_AGENT_PROMPT \
+            -e GITHUB_TOKEN \
+            -e REVIEW_MODE -e REVIEW_PROFILE -e REVIEW_SCORING \
+            -e REVIEW_LANG -e REVIEW_AUDIENCE \
+            "$AI_AGENT_IMAGE" ai-runner
