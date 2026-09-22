@@ -31,9 +31,12 @@ jobs:
     container:
       image: ${{ secrets.AI_AGENT_IMAGE }}
     env:
-      AI_PLATFORM: ${{ github.event.client_payload.AI_PLATFORM }}
+      # Static on the GitHub path — the webhook dispatch payload is capped at
+      # 10 client_payload properties (see gitlab-app/src/index.ts), so these
+      # default here instead of riding the dispatch.
+      AI_PLATFORM: github
+      AI_GITHUB_USERNAME: github-actions[bot]
       AI_AUTHOR: ${{ github.event.client_payload.AI_AUTHOR }}
-      AI_GITHUB_USERNAME: ${{ github.event.client_payload.AI_GITHUB_USERNAME }}
       AI_RESOURCE_TYPE: ${{ github.event.client_payload.AI_RESOURCE_TYPE }}
       AI_RESOURCE_ID: ${{ github.event.client_payload.AI_RESOURCE_ID }}
       AI_PROJECT_PATH: ${{ github.event.client_payload.AI_PROJECT_PATH }}
@@ -42,7 +45,6 @@ jobs:
       DIRECT_PROMPT: ${{ github.event.client_payload.DIRECT_PROMPT }}
       OPENCODE_MODEL: ${{ github.event.client_payload.OPENCODE_MODEL }}
       OPENCODE_AGENT_PROMPT: ${{ github.event.client_payload.OPENCODE_AGENT_PROMPT }}
-      TRIGGER_PHRASE: ${{ github.event.client_payload.TRIGGER_PHRASE }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Review tuning (override per repo via variables):
       REVIEW_MODE: ${{ vars.REVIEW_MODE }}
