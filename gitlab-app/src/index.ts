@@ -415,18 +415,20 @@ app.post("/webhook/github", async (c) => {
   }
 
   const ref = body.repository?.default_branch || "main";
+  // GitHub caps repository_dispatch client_payload at 10 properties (422
+  // "No more than 10 properties are allowed" otherwise). The four dropped
+  // fields are static on this path or GitLab-only and default in the
+  // consumer workflow (github-utils/ai-agent.yml): AI_PLATFORM=github,
+  // AI_GITHUB_USERNAME=github-actions[bot], TRIGGER_PHRASE=@ai;
+  // AI_TRIGGER is only read by the GitLab CI template.
   const variables = {
-    AI_PLATFORM: "github",
-    AI_TRIGGER: "true",
     AI_AUTHOR: authorLogin,
-    AI_GITHUB_USERNAME: process.env.AI_GITHUB_USERNAME || "",
     AI_RESOURCE_TYPE: prNumber ? "pull_request" : "issue",
     AI_RESOURCE_ID: String(prNumber || issueNumber || ""),
     AI_PROJECT_PATH: repoFullName,
     AI_BRANCH: ref,
     OPENCODE_MODEL: process.env.OPENCODE_MODEL || "azure/gpt-4.1",
     OPENCODE_AGENT_PROMPT: process.env.OPENCODE_AGENT_PROMPT || "",
-    TRIGGER_PHRASE: triggerPhrase,
     DIRECT_PROMPT: command,
     AI_TRIGGER_NOTE_ID: String(body.comment?.id || ""),
   };
