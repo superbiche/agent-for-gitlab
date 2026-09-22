@@ -9,7 +9,7 @@ import {
   addReactionToNote,
   getDiscussionThread,
 } from "./gitlab";
-import { dispatchAgentRun, addReaction as addGitHubReaction } from "./github";
+import { dispatchAgentRun, postAckComment } from "./github";
 import { limitByUser } from "./limiter";
 import { logger } from "./logger";
 import type { WebhookPayload } from "./types";
@@ -436,8 +436,16 @@ app.post("/webhook/github", async (c) => {
   try {
     await dispatchAgentRun(owner, repo, variables);
     logger.info("GitHub agent run dispatched", { repo: repoFullName, pr: prNumber, issue: issueNumber });
-    if (body.comment?.id) {
-      await addGitHubReaction({ owner, repo, commentId: body.comment.id, emoji: "+1" });
+    // Ack on the triggering PR/issue instead of an emoji reaction — visible
+    // without hover; message configurable via AI_ACK_MESSAGE (default "on it").
+    const ackIssue = prNumber || issueNumber;
+    if (ackIssue) {
+      await postAckComment({
+        owner,
+        repo,
+        issueNumber: ackIssue,
+        message: process.env.AI_ACK_MESSAGE,
+      });
     }
     return c.json({ status: "started", repo: repoFullName, branch: ref });
   } catch (error) {

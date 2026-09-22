@@ -74,3 +74,31 @@ export function sanitizeBranchName(title: string): string {
     .replace(/^-|-$/g, "")
     .substring(0, 50);
 }
+
+// Post a short acknowledgment comment on the triggering issue/PR (GitHub
+// path). Preferred over the emoji reaction: visible without hover, and the
+// message is configurable via AI_ACK_MESSAGE on the webhook server.
+export async function postAckComment(params: {
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  message?: string;
+}): Promise<void> {
+  const { owner, repo, issueNumber, message = "on it" } = params;
+  if (!issueNumber) return;
+  try {
+    const res = await fetch(
+      `${apiBase()}/repos/${owner}/${repo}/issues/${issueNumber}/comments`,
+      {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ body: message }),
+      }
+    );
+    if (!res.ok) {
+      logger.warn("Failed to post ack comment", { status: res.status, owner, repo, issueNumber });
+    }
+  } catch (error) {
+    logger.warn("Error posting ack comment", { error: error instanceof Error ? error.message : error });
+  }
+}
