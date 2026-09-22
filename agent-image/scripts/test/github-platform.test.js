@@ -50,8 +50,10 @@ test("buildDiffPosition dispatches github to head-sha positions", () => {
 
 test("github PR metadata normalizes to diff_refs", async (t) => {
   const pr = { number: 7, base: { sha: "a".repeat(40) }, head: { sha: "b".repeat(40) } };
+  const seen = [];
   t.mock.method(globalThis, "fetch", async (input) => {
     const url = new URL(input);
+    seen.push(String(input));
     if (url.pathname.endsWith("/pulls/7/files")) {
       return new Response(JSON.stringify([{ filename: "a.js", status: "modified", patch: "@@ -1 +1 @@\n+x" }]));
     }
@@ -71,6 +73,7 @@ test("github PR metadata normalizes to diff_refs", async (t) => {
     assert.equal(meta.diff_refs.start_sha, "a".repeat(40));
     const files = await fetchMergeRequestDiffs(context);
     assert.equal(files[0].new_path, "a.js");
+    assert.ok(seen.some((u) => u.includes("/pulls/7/files") && u.includes("per_page=30")));
     const notes = await fetchMergeRequestNotes(context);
     assert.equal(notes.length, 2);
   } finally { t.mock.restoreAll(); }

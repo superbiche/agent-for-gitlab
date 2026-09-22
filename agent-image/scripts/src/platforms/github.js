@@ -102,7 +102,9 @@ export async function fetchMergeRequest(context, number = context.mrIid) {
 }
 
 export async function fetchMergeRequestDiffs(context, number = context.mrIid) {
-  const files = await paginated(context, `/repos/${repoPath(context)}/pulls/${prNumber(context, number)}/files`);
+  // Small pages: the /files endpoint omits patch text on large responses, so
+  // keep pages modest to avoid patch-less entries tripping the overflow gate.
+  const files = await paginated(context, `/repos/${repoPath(context)}/pulls/${prNumber(context, number)}/files`, 30);
   return files.map((file) => ({
     old_path: file.previous_filename || file.filename,
     new_path: file.filename,
