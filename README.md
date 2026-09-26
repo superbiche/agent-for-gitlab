@@ -77,6 +77,24 @@ StudioNet target variables:
 - `OPENCODE_MODEL=deepseek/<model-id>`
 - `DEEPSEEK_API_KEY` set as a masked secret
 
+## GitHub Lane
+
+The same webhook app also serves `/webhook/github`: an `@ai review` comment on a pull request triggers a `repository_dispatch` (type `ai-agent`) and the consumer workflow runs the agent image. Copy [github-utils/ai-agent.yml](./github-utils/ai-agent.yml) into the consumer repo as `.github/workflows/ai-agent.yml` and wire the provider key into its `env` and `docker run -e` list. The reference consumer is `superbiche/rio-grande`.
+
+Consumer repository secrets:
+
+- `AI_AGENT_IMAGE`: fork-built agent image.
+- `DEEPSEEK_API_KEY`: the DeepSeek key. `OPENCODE_MODEL` is not a secret here; the webhook app sends it in the dispatch payload.
+
+The GitHub CI DeepSeek key is the dedicated Bitwarden item "DeepSeek API Key - Github CI", mapped as `DEEPSEEK_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/deepseek-github-ci.env`. It is distinct from the workstation DeepSeek key; do not share them. The webhook app never holds a provider key. To rotate, update the Bitwarden item, then pipe the value on stdin into every consumer repo:
+
+```bash
+bw-env-run --file ~/.config/setup-new-machines/bw-env.d/deepseek-github-ci.env -- \
+  bash -c 'printf %s "$DEEPSEEK_GITHUB_CI_API_KEY" | gh secret set DEEPSEEK_API_KEY --repo <owner/repo>'
+```
+
+Do not pass `--body -`: `gh secret set` then stores the literal `-`. Check with `gh secret list --repo <owner/repo>` (names and timestamps only).
+
 ## Webhook App
 
 The webhook app remains in `gitlab-app/` and is not part of the review runner changes. Configure it with the GitLab URL, webhook secret, trigger phrase, bot identity, and the pipeline variables it forwards, including `DIRECT_PROMPT`, `OPENCODE_AGENT_PROMPT`, `OPENCODE_MODEL`, and `AI_*` values.
