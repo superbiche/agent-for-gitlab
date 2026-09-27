@@ -5,8 +5,16 @@
 #
 # Required repository secrets/variables:
 # - AI_AGENT_IMAGE: fork-built agent image (ghcr.io/<owner>/<repo>/agent-image)
-# - OPENCODE_MODEL: provider/model, for example deepseek/<model-id>
-# - Provider key for the selected model (e.g. DEEPSEEK_API_KEY)
+#   (OPENCODE_MODEL is NOT a repository secret or variable: the webhook app sends
+#   `provider/model`, for example deepseek/<model-id>, in the dispatch payload.)
+# - Provider key for the selected model (e.g. DEEPSEEK_API_KEY). For DeepSeek,
+#   the key comes from the dedicated Bitwarden item "DeepSeek API Key - Github CI"
+#   (mapping bw-env.d/deepseek-github-ci.env, var DEEPSEEK_GITHUB_CI_API_KEY),
+#   never the workstation key. Rotate by piping it on stdin (no --body flag:
+#   `--body -` stores a literal "-"):
+#     bw-env-run --file ~/.config/setup-new-machines/bw-env.d/deepseek-github-ci.env -- \
+#       bash -c 'printf %s "$DEEPSEEK_GITHUB_CI_API_KEY" | gh secret set DEEPSEEK_API_KEY --repo <owner/repo>'
+#   The webhook app never holds the provider key; only this repo secret does.
 # - GITHUB_TOKEN is provided automatically; for private repos or
 #   cross-repo dispatch use a fine-grained PAT with contents+pull-requests write.
 #
