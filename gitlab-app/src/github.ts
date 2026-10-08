@@ -43,17 +43,21 @@ export async function dispatchAgentRun(
   logger.info("Agent run dispatched", { owner, repo, eventType });
 }
 
+// Acknowledge with a reaction, never a comment: a comment makes the token's
+// account a thread participant and subscribes it to every later event.
 export async function addReaction(params: {
   owner: string;
   repo: string;
   commentId: number;
+  reviewComment?: boolean;
   emoji?: string;
 }): Promise<void> {
   const { owner, repo, commentId } = params;
   const emoji = params.emoji || "+1";
   if (!commentId) return;
+  const kind = params.reviewComment ? "pulls" : "issues";
   try {
-    const res = await fetch(`${apiBase()}/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`, {
+    const res = await fetch(`${apiBase()}/repos/${owner}/${repo}/${kind}/comments/${commentId}/reactions`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ content: emoji }),
@@ -73,32 +77,4 @@ export function sanitizeBranchName(title: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .substring(0, 50);
-}
-
-// Post a short acknowledgment comment on the triggering issue/PR (GitHub
-// path). Preferred over the emoji reaction: visible without hover, and the
-// message is configurable via AI_ACK_MESSAGE on the webhook server.
-export async function postAckComment(params: {
-  owner: string;
-  repo: string;
-  issueNumber: number;
-  message?: string;
-}): Promise<void> {
-  const { owner, repo, issueNumber, message = "on it" } = params;
-  if (!issueNumber) return;
-  try {
-    const res = await fetch(
-      `${apiBase()}/repos/${owner}/${repo}/issues/${issueNumber}/comments`,
-      {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ body: message }),
-      }
-    );
-    if (!res.ok) {
-      logger.warn("Failed to post ack comment", { status: res.status, owner, repo, issueNumber });
-    }
-  } catch (error) {
-    logger.warn("Error posting ack comment", { error: error instanceof Error ? error.message : error });
-  }
 }
