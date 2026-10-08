@@ -74,12 +74,40 @@ test("dispatches review with platform variables and reacts", async () => {
     expect(res.status).toBe(200);
     const payload = dispatch?.body.client_payload as Record<string, string>;
     expect(dispatch?.body.event_type).toBe("ai-agent");
-    expect(payload.AI_PLATFORM).toBe("github");
+    // GitHub caps client_payload at 10 properties; AI_PLATFORM defaults in the consumer workflow.
+    expect(Object.keys(payload).length).toBeLessThanOrEqual(10);
     expect(payload.AI_RESOURCE_TYPE).toBe("pull_request");
     expect(payload.AI_RESOURCE_ID).toBe("7");
     expect(payload.AI_PROJECT_PATH).toBe("owner/repo");
     expect(payload.DIRECT_PROMPT).toBe("review the diff");
     expect(reaction).toContain("/repos/owner/repo/issues/comments/55/reactions");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("reacts to inline review comments without posting a comment", async () => {
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/dispatches")) return new Response("", { status: 204 });
+    if (url.includes("/reactions")) return new Response(JSON.stringify({ id: 1 }), { status: 201 });
+    throw new Error(`unexpected ${url}`);
+  }) as typeof fetch;
+  try {
+    const body = {
+      action: "created",
+      comment: { id: 56, body: "@ai review", user: { login: "operator" } },
+      pull_request: { number: 7 },
+      repository: { full_name: "owner/repo", default_branch: "main" },
+    };
+    expect((await postGitHub(body, "pull_request_review_comment")).status).toBe(200);
+    expect(calls).toEqual([
+      "https://api.github.com/repos/owner/repo/dispatches",
+      "https://api.github.com/repos/owner/repo/pulls/comments/56/reactions",
+    ]);
   } finally {
     globalThis.fetch = original;
   }
