@@ -34,10 +34,12 @@ export function parseText(output = "") {
   return text.join("\n");
 }
 
-export function recordUsage(context, label, output) {
-  const usage = { label, model: context.opencodeModel, ...parseUsage(output) };
+// complete=false marks a failed call: only its finished steps are counted, and a
+// step interrupted mid-request is not in the stream at all, so totals are a floor.
+export function recordUsage(context, label, output, { complete = true } = {}) {
+  const usage = { label, model: context.opencodeModel, complete, ...parseUsage(output) };
   if (Array.isArray(context.usage)) context.usage.push(usage);
-  logger.info(`Usage ${label}: model=${usage.model} cost=$${usage.cost.toFixed(4)} input=${usage.input} output=${usage.output} reasoning=${usage.reasoning} cache_read=${usage.cache_read} cache_write=${usage.cache_write} steps=${usage.steps}`);
+  logger.info(`Usage ${label}${complete ? "" : " (failed call, lower bound)"}: model=${usage.model} cost=$${usage.cost.toFixed(4)} input=${usage.input} output=${usage.output} reasoning=${usage.reasoning} cache_read=${usage.cache_read} cache_write=${usage.cache_write} steps=${usage.steps}`);
   return usage;
 }
 
@@ -45,7 +47,8 @@ export function summarizeUsage(calls = []) {
   const total = { cost: 0, input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 };
   for (const call of calls) for (const key of Object.keys(total)) total[key] += call[key] || 0;
   total.cost = Number(total.cost.toFixed(6));
-  if (calls.length) logger.info(`Usage total: cost=$${total.cost.toFixed(4)} input=${total.input} output=${total.output} calls=${calls.length}`);
+  total.complete = calls.every((call) => call.complete !== false);
+  if (calls.length) logger.info(`Usage total${total.complete ? "" : " (includes failed calls, lower bound)"}: cost=$${total.cost.toFixed(4)} input=${total.input} output=${total.output} calls=${calls.length}`);
   return { total, calls };
 }
 

@@ -41,6 +41,8 @@ ai_webhook_handler:
   rules:
     - if: '$AI_TRIGGER == "true"'
   artifacts:
+    # Failed runs keep their usage record too.
+    when: always
     paths:
       - ai-output.json
     expire_in: 1 week

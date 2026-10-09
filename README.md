@@ -93,7 +93,7 @@ Consumer repository secrets:
 
 Switch provider by changing `OPENCODE_MODEL` in the webhook pod's `ai-webhook-env` Secret and restarting the deployment; the consumer needs that provider's key. The `risk` profile is DeepSeek-only. The Anthropic key is the Bitwarden item "Anthropic API Key - Max Michel - Github CI Reviews" (Console organization on the Max plan's monthly API credits, spend-capped), mapped as `ANTHROPIC_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/anthropic-github-ci-reviews.env`, installed the same way as the DeepSeek key.
 
-Every captured opencode call logs a `Usage <label>:` line (tokens, cache and USD cost as priced by opencode's model registry), and `ai-output.json` carries `usage.total` plus per-call entries, including on failed runs.
+Every captured opencode call logs a `Usage <label>:` line (tokens, cache and USD cost as priced by opencode's model registry), and `ai-output.json` carries `usage.total` plus per-call entries, including on failed runs. A failed call is marked `complete: false` and counts only the steps it finished, so its cost is a lower bound; `usage.total.complete` says whether any call failed.
 
 The GitHub CI DeepSeek key is the dedicated Bitwarden item "DeepSeek API Key - Github CI", mapped as `DEEPSEEK_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/deepseek-github-ci.env`. It is distinct from the workstation DeepSeek key; do not share them. The webhook app never holds a provider key. To rotate, update the Bitwarden item, then pipe the value on stdin into every consumer repo:
 

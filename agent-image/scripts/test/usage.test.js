@@ -32,3 +32,14 @@ test("records per-call usage on a shared context array and totals it", () => {
   assert.equal(total.cost, 0.035);
   assert.equal(total.input, 3100);
 });
+
+test("failed calls keep their completed steps and mark totals as a lower bound", () => {
+  const context = { opencodeModel: "deepseek/deepseek-flash", usage: [] };
+  recordUsage(context, "findings", stream);
+  recordUsage(context, "scores", step(0.125, 100, 20, 30, 10), { complete: false });
+  assert.equal(context.usage[1].complete, false);
+  assert.equal(context.usage[1].cost, 0.125);
+  const { total } = summarizeUsage(context.usage);
+  assert.equal(total.complete, false);
+  assert.equal(total.cost, 0.155);
+});

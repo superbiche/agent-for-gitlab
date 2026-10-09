@@ -57,6 +57,8 @@ export async function runOpencode(context, prompt, options = {}) {
       maxBuffer: options.maxBuffer || 20 * 1024 * 1024,
     });
 
+    // Account before failure checks: a failed call may already have paid for completed steps.
+    if (json) recordUsage(context, options.label || "opencode", typeof result.stdout === "string" ? result.stdout : "", { complete: !result.error && result.status === 0 });
     if (result.error?.code === "ETIMEDOUT") throw new Error("Risk review model call timed out after 20 minutes; review incomplete.");
     if (result.error) throw new Error(`Could not run opencode: ${result.error.code || result.error.message}`);
     if (result.status !== 0) {
@@ -66,7 +68,6 @@ export async function runOpencode(context, prompt, options = {}) {
     }
 
     logger.success("opencode CLI completed");
-    if (json) recordUsage(context, options.label || "opencode", result.stdout || "");
     if (risk) {
       const evidence = parseRiskEvents(result.stdout || "", isolation.sourcePolicy, isolation.options.cwd);
       context.verifiedSourceReads = [...new Set([...(context.verifiedSourceReads || []), ...evidence.reads])];
