@@ -17,6 +17,7 @@ export async function runOpencode(context, prompt, options = {}) {
   }
 
   logger.info(`Using model: ${modelID} from provider: ${providerID}`);
+  if (!risk) ensureModelKnown(context.opencodeModel, providerID);
 
 
   const cliArgs = [
@@ -80,6 +81,22 @@ export async function runOpencode(context, prompt, options = {}) {
   } finally {
     if (risk) { rmSync(isolation.isolationRoot, {recursive:true, force:true}); if (!context.sourcePolicy) isolation.sourcePolicy.dispose?.(); }
   }
+}
+
+// The pinned CLI ships a models.dev snapshot older than the live registry; fresh
+// runner pods refresh once when the configured model is missing from it.
+const knownModels = new Set();
+export function ensureModelKnown(model, provider = model.split("/")[0]) {
+  if (knownModels.has(model)) return;
+  const list = (refresh) => {
+    const result = spawnSync("opencode", ["models", provider, ...(refresh ? ["--refresh"] : [])], { encoding: "utf-8", timeout: 60 * 1000 });
+    return String(result.stdout || "").split("\n").map((line) => line.trim());
+  };
+  if (!list(false).includes(model)) {
+    logger.info(`Model ${model} not in opencode's bundled registry; refreshing from models.dev.`);
+    if (!list(true).includes(model)) throw new Error(`opencode does not know model ${model}; check OPENCODE_MODEL against \`opencode models ${provider}\`.`);
+  }
+  knownModels.add(model);
 }
 
 // Consume the pinned CLI's JSON events, never model-authored claims of tool use.

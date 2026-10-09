@@ -89,7 +89,7 @@ Jobs run on self-hosted ARC runners (lugus, `servers/lugus/infra/arc/` in the in
 Consumer repository secrets:
 
 - `DEEPSEEK_API_KEY`: the DeepSeek key. `OPENCODE_MODEL` is not a secret here; the webhook app sends it in the dispatch payload.
-- `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`: optional, for `anthropic/<model>` (e.g. `anthropic/claude-sonnet-5-5`) and `openrouter/<vendor>/<model>` (e.g. `openrouter/openai/gpt-5.5`).
+- `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`: optional, for `anthropic/<model>` (e.g. `anthropic/claude-sonnet-5-5`) and `openrouter/<vendor>/<model>` (e.g. `openrouter/openai/gpt-6-luna`).
 
 Switch provider by changing `OPENCODE_MODEL` in the webhook pod's `ai-webhook-env` Secret and restarting the deployment; the consumer needs that provider's key. The `risk` profile is DeepSeek-only. The Anthropic key is the Bitwarden item "Anthropic API Key - Max Michel - Github CI Reviews" (Console organization on the Max plan's monthly API credits, spend-capped), mapped as `ANTHROPIC_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/anthropic-github-ci-reviews.env`, installed the same way as the DeepSeek key.
 
