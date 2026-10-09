@@ -11,6 +11,7 @@ import { causeSummary } from "./platforms/http.js";
 import { buildGitLabPosition } from "./platforms/gitlab.js";
 import { buildGitHubPosition } from "./platforms/github.js";
 import { compressDiffs, changedLineCount } from "./diff-compression.js";
+import { summarizeUsage } from "./usage.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const THRESHOLDS = { loose: 80, strict: 60, excessive: 40 };
@@ -94,6 +95,7 @@ export async function runReview(context) {
       model: modelContext.opencodeModel,
       diff_compression: reviewData.diffCompression || undefined,
       head_sha: reviewData.mr.diff_refs?.head_sha,
+      usage: summarizeUsage(context.usage),
       trigger_note_id: context.triggerNoteId,
       source_reads: context.verifiedSourceReads,
       issues: filtered.issues.length,
@@ -151,7 +153,7 @@ async function scoreIssues(context, reviewData, findings) {
 
 async function runJsonOpencode(context, prompt, filePath, label) {
   rmSync(filePath, { force: true });
-  let output = await runOpencode(context, prompt, { captureOutput: true });
+  let output = await runOpencode(context, prompt, { captureOutput: true, label });
   try {
     return parseModelJson(output, filePath, label);
   } catch (error) {
@@ -162,7 +164,7 @@ async function runJsonOpencode(context, prompt, filePath, label) {
   output = await runOpencode(
     context,
     context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\n\n---\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
-    { captureOutput: true },
+    { captureOutput: true, label: `${label}-retry` },
   );
   return parseModelJson(output, filePath, label);
 }

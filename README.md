@@ -82,12 +82,18 @@ StudioNet target variables:
 
 ## GitHub Lane
 
-The same webhook app also serves `/webhook/github`: an `@ai review` comment on a pull request triggers a `repository_dispatch` (type `ai-agent`) and the consumer workflow runs the agent image. Copy [github-utils/ai-agent.yml](./github-utils/ai-agent.yml) into the consumer repo as `.github/workflows/ai-agent.yml` and wire the provider key into its `env` and `docker run -e` list. The reference consumer is `superbiche/rio-grande`.
+The same webhook app also serves `/webhook/github`: an `@ai review` comment on a pull request triggers a `repository_dispatch` (type `ai-agent`) and the consumer workflow runs `ai-runner`. Copy [github-utils/ai-agent.yml](./github-utils/ai-agent.yml) into the consumer repo as `.github/workflows/ai-agent.yml`, set `runs-on` to the consumer's runner scale set and wire the provider key into its `env`. The reference consumer is `superbiche/rio-grande`.
+
+Jobs run on self-hosted ARC runners (lugus, `servers/lugus/infra/arc/` in the infra repo). Runner pods have no Docker daemon, so each consumer repo gets a scale set whose runner image carries the agent toolchain: `arc-runner-ai`, built in the infra repo (`runner-image-ai/`) from this repo's published agent image and rebuilt per agent release. The job runs `ai-runner` as the image's isolated `agent` user; every variable it needs must appear in the workflow's `--preserve-env` list. This repo's own image builds run on the `agent-for-gitlab-ci` set through the in-cluster buildkitd and need the `BUILDKIT_CLIENT_TLS_CACERT`, `BUILDKIT_CLIENT_TLS_CERT` and `BUILDKIT_CLIENT_TLS_KEY` repository secrets.
 
 Consumer repository secrets:
 
-- `AI_AGENT_IMAGE`: fork-built agent image.
 - `DEEPSEEK_API_KEY`: the DeepSeek key. `OPENCODE_MODEL` is not a secret here; the webhook app sends it in the dispatch payload.
+- `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`: optional, for `anthropic/<model>` (e.g. `anthropic/claude-sonnet-5-5`) and `openrouter/<vendor>/<model>` (e.g. `openrouter/openai/gpt-6-luna`).
+
+Switch provider by changing `OPENCODE_MODEL` in the webhook pod's `ai-webhook-env` Secret and restarting the deployment; the consumer needs that provider's key. The `risk` profile is DeepSeek-only. The Anthropic key is the Bitwarden item "Anthropic API Key - Max Michel - Github CI Reviews" (Console organization on the Max plan's monthly API credits, spend-capped), mapped as `ANTHROPIC_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/anthropic-github-ci-reviews.env`, installed the same way as the DeepSeek key.
+
+Every captured opencode call logs a `Usage <label>:` line (tokens, cache and USD cost as priced by opencode's model registry), and `ai-output.json` carries `usage.total` plus per-call entries, including on failed runs. A failed call is marked `complete: false` and counts only the steps it finished, so its cost is a lower bound; `usage.total.complete` says whether any call failed.
 
 The GitHub CI DeepSeek key is the dedicated Bitwarden item "DeepSeek API Key - Github CI", mapped as `DEEPSEEK_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/deepseek-github-ci.env`. It is distinct from the workstation DeepSeek key; do not share them. The webhook app never holds a provider key. To rotate, update the Bitwarden item, then pipe the value on stdin into every consumer repo:
 

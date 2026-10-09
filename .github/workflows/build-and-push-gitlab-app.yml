@@ -19,13 +19,13 @@ permissions:
 
 jobs:
   docker:
-    runs-on: ubuntu-latest
-    env:
-      # Fallback default; will be overridden by the compute step below
-      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/claude-code-for-gitlab/gitlab-app
+    # Self-hosted on the lugus ARC pool (infra servers/lugus/infra/arc): the
+    # scale-set name is the only valid label. Fork PRs never reach it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: agent-for-gitlab-ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Compute image name (lowercase)
         shell: bash
@@ -35,12 +35,21 @@ jobs:
           REPO_LC="${REPO_LC,,}"
           echo "IMAGE_NAME=ghcr.io/${OWNER_LC}/${REPO_LC}/gitlab-app" >> "$GITHUB_ENV"
 
+      # Runner pods have no Docker daemon: build on the in-cluster rootless
+      # buildkitd (buildx remote driver over mTLS).
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: remote
+          endpoint: tcp://buildkitd.gh-ci.svc.cluster.local:1234
+        env:
+          BUILDER_NODE_0_AUTH_TLS_CACERT: ${{ secrets.BUILDKIT_CLIENT_TLS_CACERT }}
+          BUILDER_NODE_0_AUTH_TLS_CERT: ${{ secrets.BUILDKIT_CLIENT_TLS_CERT }}
+          BUILDER_NODE_0_AUTH_TLS_KEY: ${{ secrets.BUILDKIT_CLIENT_TLS_KEY }}
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -48,7 +57,7 @@ jobs:
 
       - name: Extract metadata (tags, labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
@@ -58,12 +67,13 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./gitlab-app
           file: ./gitlab-app/Dockerfile
+          pull: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_NAME) || '' }}
