@@ -7,6 +7,11 @@
 # - GITLAB_TOKEN: token name only; value must be masked and have API access
 # - OPENCODE_MODEL: provider/model, for example deepseek/<model-id>
 # - DEEPSEEK_API_KEY: required when OPENCODE_MODEL uses the deepseek provider
+#   (ANTHROPIC_API_KEY for anthropic/<model>, OPENROUTER_API_KEY for
+#   openrouter/<vendor>/<model>)
+#
+# Cost: the job log has one `Usage <label>:` line per model call and
+# ai-output.json carries usage.total (USD, opencode registry pricing).
 #
 # Review-mode variables for StudioNet:
 # - REVIEW_MODE=excessive
@@ -14,6 +19,11 @@
 # - REVIEW_SCORING=agents
 # - REVIEW_LANG=fr
 # - REVIEW_AUDIENCE=team
+#
+# Optional tuning (see README):
+# - REVIEW_MAX_DIFF_TOKENS: diff token budget before compression, default 64000
+# - REVIEW_SMALL_MODEL: provider/model for small MRs, plus its provider key
+# - REVIEW_SMALL_MAX_LINES / REVIEW_SMALL_MAX_FILES: defaults 100 / 5
 
 stages:
   - ai
@@ -31,6 +41,8 @@ ai_webhook_handler:
   rules:
     - if: '$AI_TRIGGER == "true"'
   artifacts:
+    # Failed runs keep their usage record too.
+    when: always
     paths:
       - ai-output.json
     expire_in: 1 week

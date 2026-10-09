@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { spawnSync, execFileSync } from "node:child_process";
+import { parseText, recordUsage } from "./usage.js";
 
 export async function runOpencode(context, prompt, options = {}) {
   logger.start("Running opencode via cli...");
@@ -16,6 +17,7 @@ export async function runOpencode(context, prompt, options = {}) {
   }
 
   logger.info(`Using model: ${modelID} from provider: ${providerID}`);
+  if (!risk) ensureModelKnown(context.opencodeModel, providerID);
 
 
   const cliArgs = [
@@ -30,8 +32,10 @@ export async function runOpencode(context, prompt, options = {}) {
   // --pure disables that plugin too; generic invocation keeps its previous mode.
   if (!risk) cliArgs.push("--pure");
 
-  if (risk || options.format) {
-    cliArgs.push("--format", risk ? "json" : options.format);
+  // Captured calls read JSON events: step_finish carries tokens and cost.
+  const json = risk || options.captureOutput;
+  if (json || options.format) {
+    cliArgs.push("--format", json ? "json" : options.format);
   }
 
   if (options.skipPermissions !== false) {
@@ -53,6 +57,8 @@ export async function runOpencode(context, prompt, options = {}) {
       maxBuffer: options.maxBuffer || 20 * 1024 * 1024,
     });
 
+    // Account before failure checks: a failed call may already have paid for completed steps.
+    if (json) recordUsage(context, options.label || "opencode", typeof result.stdout === "string" ? result.stdout : "", { complete: !result.error && result.status === 0 });
     if (result.error?.code === "ETIMEDOUT") throw new Error("Risk review model call timed out after 20 minutes; review incomplete.");
     if (result.error) throw new Error(`Could not run opencode: ${result.error.code || result.error.message}`);
     if (result.status !== 0) {
@@ -72,10 +78,26 @@ export async function runOpencode(context, prompt, options = {}) {
       }
       return evidence.text;
     }
-    return result.stdout || "";
+    return json ? parseText(result.stdout || "") : result.stdout || "";
   } finally {
     if (risk) { rmSync(isolation.isolationRoot, {recursive:true, force:true}); if (!context.sourcePolicy) isolation.sourcePolicy.dispose?.(); }
   }
+}
+
+// The pinned CLI ships a models.dev snapshot older than the live registry; fresh
+// runner pods refresh once when the configured model is missing from it.
+const knownModels = new Set();
+export function ensureModelKnown(model, provider = model.split("/")[0]) {
+  if (knownModels.has(model)) return;
+  const list = (refresh) => {
+    const result = spawnSync("opencode", ["models", provider, ...(refresh ? ["--refresh"] : [])], { encoding: "utf-8", timeout: 60 * 1000 });
+    return String(result.stdout || "").split("\n").map((line) => line.trim());
+  };
+  if (!list(false).includes(model)) {
+    logger.info(`Model ${model} not in opencode's bundled registry; refreshing from models.dev.`);
+    if (!list(true).includes(model)) throw new Error(`opencode does not know model ${model}; check OPENCODE_MODEL against \`opencode models ${provider}\`.`);
+  }
+  knownModels.add(model);
 }
 
 // Consume the pinned CLI's JSON events, never model-authored claims of tool use.

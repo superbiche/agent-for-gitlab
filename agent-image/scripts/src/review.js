@@ -10,6 +10,8 @@ import { loadAdapter, selectPlatform } from "./platforms/interface.js";
 import { causeSummary } from "./platforms/http.js";
 import { buildGitLabPosition } from "./platforms/gitlab.js";
 import { buildGitHubPosition } from "./platforms/github.js";
+import { compressDiffs, changedLineCount } from "./diff-compression.js";
+import { summarizeUsage } from "./usage.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const THRESHOLDS = { loose: 80, strict: 60, excessive: 40 };
@@ -41,13 +43,22 @@ export async function runReview(context) {
     try { validateRiskContext(reviewData, context.sourcePolicy); } catch (error) { context.sourcePolicy.dispose(); throw error; }
   }
   try {
+    // Risk keeps the complete diff and fails closed on size; other profiles fit a token budget.
+    if (context.reviewProfile !== "risk") {
+      const { diffs, compression } = compressDiffs(reviewData.diffs, { maxTokens: context.reviewMaxDiffTokens });
+      reviewData.promptDiffs = diffs;
+      reviewData.diffCompression = compression;
+      if (compression) logger.info(`Diff compressed: ~${compression.estimated_tokens_before} -> ~${compression.estimated_tokens_after} tokens, ${compression.included_files} file(s) with patches`);
+    }
+    const modelContext = selectReviewModel(context, reviewData);
+    if (modelContext !== context) logger.info(`Small MR routed to ${modelContext.opencodeModel}`);
     const rawFindings = context.dryRun
       ? normalizeFindings(reviewData.findings)
-      : await findIssues(context, reviewData, focus);
+      : await findIssues(modelContext, reviewData, focus);
     const scoredFindings = context.reviewScoring === "agents"
       ? context.dryRun
         ? applyScores(rawFindings, reviewData.scores, context.reviewProfile === "risk")
-        : await scoreIssues(context, reviewData, rawFindings)
+        : await scoreIssues(modelContext, reviewData, rawFindings)
       : rawFindings;
 
     if (context.reviewProfile === "risk") {
@@ -63,8 +74,8 @@ export async function runReview(context) {
     const postPlan = buildPostPlan(reviewData, filtered, context, platform.buildPosition || fallbackPosition);
 
     if (context.dryRun) {
-      const summary = formatSummary(context, reviewData.mr, filtered, postPlan);
-      const result = { dryRun: true, threshold, postPlan, summary };
+      const summary = formatSummary(context, reviewData.mr, filtered, postPlan, [], reviewData.diffCompression);
+      const result = { dryRun: true, threshold, model: modelContext.opencodeModel, compression: reviewData.diffCompression, postPlan, summary };
       logger.info(JSON.stringify(result, null, 2));
       return result;
     }
@@ -81,7 +92,10 @@ export async function runReview(context) {
       prompt: context.prompt,
       branch: context.branch,
       review: true,
+      model: modelContext.opencodeModel,
+      diff_compression: reviewData.diffCompression || undefined,
       head_sha: reviewData.mr.diff_refs?.head_sha,
+      usage: summarizeUsage(context.usage),
       trigger_note_id: context.triggerNoteId,
       source_reads: context.verifiedSourceReads,
       issues: filtered.issues.length,
@@ -89,6 +103,18 @@ export async function runReview(context) {
       posted,
     };
   } finally { context.sourcePolicy?.dispose?.(); }
+}
+
+// Routes small MRs to REVIEW_SMALL_MODEL; risk reviews keep their pinned model.
+export function selectReviewModel(context, reviewData) {
+  if (!context.reviewSmallModel || context.reviewProfile === "risk") return context;
+  if (!/^[^/\s]+\/\S+$/.test(context.reviewSmallModel)) {
+    logger.warn("REVIEW_SMALL_MODEL must be provider/model; ignoring it.");
+    return context;
+  }
+  const diffs = reviewData.diffs || [];
+  if (diffs.length > context.reviewSmallMaxFiles || changedLineCount(diffs) > context.reviewSmallMaxLines) return context;
+  return { ...context, opencodeModel: context.reviewSmallModel };
 }
 
 async function prefetchReviewData(context) {
@@ -127,7 +153,7 @@ async function scoreIssues(context, reviewData, findings) {
 
 async function runJsonOpencode(context, prompt, filePath, label) {
   rmSync(filePath, { force: true });
-  let output = await runOpencode(context, prompt, { captureOutput: true });
+  let output = await runOpencode(context, prompt, { captureOutput: true, label });
   try {
     return parseModelJson(output, filePath, label);
   } catch (error) {
@@ -138,7 +164,7 @@ async function runJsonOpencode(context, prompt, filePath, label) {
   output = await runOpencode(
     context,
     context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\n\n---\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
-    { captureOutput: true },
+    { captureOutput: true, label: `${label}-retry` },
   );
   return parseModelJson(output, filePath, label);
 }
@@ -176,7 +202,8 @@ ${JSON.stringify({
     threshold: THRESHOLDS[context.reviewMode] || THRESHOLDS.strict,
     passes: PROFILE_PASSES[context.reviewProfile] || PROFILE_PASSES.standard,
     mr: reviewData.mr,
-    diffs: reviewData.diffs,
+    diffs: reviewData.promptDiffs || reviewData.diffs,
+    ...(reviewData.diffCompression ? { diff_compression: reviewData.diffCompression } : {}),
     notes: reviewData.notes,
     ...extras,
   }, null, 2)}
@@ -307,7 +334,7 @@ async function postReview(context, reviewData, findings, postPlan) {
     if (noteId) noteLinks.push({ index: plan.index, noteId });
   }
 
-  const summary = formatSummary(context, reviewData.mr, findings, postPlan, noteLinks);
+  const summary = formatSummary(context, reviewData.mr, findings, postPlan, noteLinks, reviewData.diffCompression);
   const summaryResponse = await platform.postMergeRequestNote(context, context.mrIid, summary);
   return {
     inline_or_fallback_notes: noteLinks.length,
@@ -336,7 +363,7 @@ ${finding.description}${evidence}
 **Suggestion**: ${finding.suggestion || "No concrete suggestion provided."}`;
 }
 
-function formatSummary(context, mr, findings, postPlan, noteLinks = []) {
+function formatSummary(context, mr, findings, postPlan, noteLinks = [], compression = null) {
   if (context.reviewProfile === "risk") return formatRiskSummary(context, mr, findings, postPlan, noteLinks);
   const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
   const author = mr?.author?.username || context.author || "author";
@@ -349,6 +376,7 @@ function formatSummary(context, mr, findings, postPlan, noteLinks = []) {
     intro,
     "",
   ];
+  if (compression) lines.push(compressionNotice(context, compression), "");
 
   if (findings.issues.length) {
     lines.push(`**Found ${findings.issues.length} issue(s):**`, "");
@@ -389,6 +417,13 @@ function formatSummary(context, mr, findings, postPlan, noteLinks = []) {
   }
 
   return lines.join("\n").trim();
+}
+
+function compressionNotice(context, compression) {
+  const byName = compression.other_modified_files.length + compression.deleted_files.length + compression.skipped_files.length + compression.omitted_file_count;
+  return context.reviewLang === "fr"
+    ? `_MR volumineuse : diff compressé, ${compression.included_files} fichier(s) revus avec leur patch, ${byName} cités par nom seulement._`
+    : `_Large MR: diff compressed, ${compression.included_files} file(s) reviewed with patches, ${byName} listed by name only._`;
 }
 
 function linkForFinding(finding, postPlan, noteLinks) {
