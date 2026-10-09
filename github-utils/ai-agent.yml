@@ -1,12 +1,18 @@
 # GitHub Actions workflow for the @ai agent.
 # The webhook app dispatches a repository_dispatch event (type: ai-agent)
-# when a PR/issue comment mentions @ai. This workflow runs the same
-# agent-image as the GitLab CI job and the runner posts back via REST.
+# when a PR/issue comment mentions @ai. The runner posts back via REST.
+#
+# Runs on a self-hosted ARC scale set whose runner image carries the agent
+# toolchain (lugus: `arc-runner-ai`, infra servers/lugus/infra/arc/
+# runner-image-ai/, built FROM this repo's agent-image). Runner pods have no
+# Docker daemon. The agent runs as the image's separate `agent` user through
+# its single sudo rule; sudo resets the environment, so every variable the
+# agent needs must be listed in --preserve-env. Set `runs-on` to the scale-set
+# name only (adding `self-hosted` queues jobs forever).
 #
 # Required repository secrets/variables:
-# - AI_AGENT_IMAGE: fork-built agent image (ghcr.io/<owner>/<repo>/agent-image)
-#   (OPENCODE_MODEL is NOT a repository secret or variable: the webhook app sends
-#   `provider/model`, for example deepseek/<model-id>, in the dispatch payload.)
+# - OPENCODE_MODEL is NOT a repository secret or variable: the webhook app sends
+#   `provider/model`, for example deepseek/<model-id>, in the dispatch payload.
 # - Provider key for the selected model (e.g. DEEPSEEK_API_KEY). For DeepSeek,
 #   the key comes from the dedicated Bitwarden item "DeepSeek API Key - Github CI"
 #   (mapping bw-env.d/deepseek-github-ci.env, var DEEPSEEK_GITHUB_CI_API_KEY),
@@ -37,7 +43,7 @@ permissions:
 jobs:
   ai_webhook_handler:
     if: ${{ github.event.client_payload.trigger == 'ai' }}
-    runs-on: ubuntu-latest
+    runs-on: <repo>-ai
     env:
       # Static on the GitHub path — the webhook dispatch payload is capped at
       # 10 client_payload properties (see gitlab-app/src/index.ts), so these
@@ -54,11 +60,8 @@ jobs:
       OPENCODE_MODEL: ${{ github.event.client_payload.OPENCODE_MODEL }}
       OPENCODE_AGENT_PROMPT: ${{ github.event.client_payload.OPENCODE_AGENT_PROMPT }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # NOTE: no `container:` block — `container.image` does not support the
-      # secrets context, so referencing ${{ secrets.AI_AGENT_IMAGE }} there
-      # silently startup-fails every run (observed 2026-09-22). Resolve the
-      # image in env and docker-run it in the step instead.
-      AI_AGENT_IMAGE: ${{ secrets.AI_AGENT_IMAGE }}
+      # Provider key for OPENCODE_MODEL (and REVIEW_SMALL_MODEL, if set).
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       # Review tuning (override per repo via variables):
       REVIEW_MODE: ${{ vars.REVIEW_MODE }}
       REVIEW_PROFILE: ${{ vars.REVIEW_PROFILE }}
@@ -73,17 +76,8 @@ jobs:
       - name: Run AI agent
         shell: bash
         run: |
-          docker pull "$AI_AGENT_IMAGE"
-          # Consumers: add `-e <PROVIDER>_API_KEY` for your OPENCODE_MODEL
-          # provider (e.g. DEEPSEEK_API_KEY) and declare it in env above.
-          docker run --rm \
-            -e AI_PLATFORM -e AI_GITHUB_USERNAME -e AI_AUTHOR \
-            -e AI_RESOURCE_TYPE -e AI_RESOURCE_ID -e AI_PROJECT_PATH \
-            -e AI_BRANCH -e AI_TRIGGER_NOTE_ID -e DIRECT_PROMPT \
-            -e OPENCODE_MODEL -e OPENCODE_AGENT_PROMPT \
-            -e GITHUB_TOKEN \
-            -e REVIEW_MODE -e REVIEW_PROFILE -e REVIEW_SCORING \
-            -e REVIEW_LANG -e REVIEW_AUDIENCE \
-            -e REVIEW_MAX_DIFF_TOKENS -e REVIEW_SMALL_MODEL \
-            -e REVIEW_SMALL_MAX_LINES -e REVIEW_SMALL_MAX_FILES \
-            "$AI_AGENT_IMAGE" ai-runner
+          cd /opt/agent
+          # Add any other provider key to env above and to this list.
+          sudo -n -H -u agent \
+            --preserve-env=AI_PLATFORM,AI_GITHUB_USERNAME,AI_AUTHOR,AI_RESOURCE_TYPE,AI_RESOURCE_ID,AI_PROJECT_PATH,AI_BRANCH,AI_TRIGGER_NOTE_ID,DIRECT_PROMPT,OPENCODE_MODEL,OPENCODE_AGENT_PROMPT,GITHUB_TOKEN,DEEPSEEK_API_KEY,REVIEW_MODE,REVIEW_PROFILE,REVIEW_SCORING,REVIEW_LANG,REVIEW_AUDIENCE,REVIEW_MAX_DIFF_TOKENS,REVIEW_SMALL_MODEL,REVIEW_SMALL_MAX_LINES,REVIEW_SMALL_MAX_FILES \
+            /usr/local/bin/ai-runner

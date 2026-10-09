@@ -82,11 +82,12 @@ StudioNet target variables:
 
 ## GitHub Lane
 
-The same webhook app also serves `/webhook/github`: an `@ai review` comment on a pull request triggers a `repository_dispatch` (type `ai-agent`) and the consumer workflow runs the agent image. Copy [github-utils/ai-agent.yml](./github-utils/ai-agent.yml) into the consumer repo as `.github/workflows/ai-agent.yml` and wire the provider key into its `env` and `docker run -e` list. The reference consumer is `superbiche/rio-grande`.
+The same webhook app also serves `/webhook/github`: an `@ai review` comment on a pull request triggers a `repository_dispatch` (type `ai-agent`) and the consumer workflow runs `ai-runner`. Copy [github-utils/ai-agent.yml](./github-utils/ai-agent.yml) into the consumer repo as `.github/workflows/ai-agent.yml`, set `runs-on` to the consumer's runner scale set and wire the provider key into its `env`. The reference consumer is `superbiche/rio-grande`.
+
+Jobs run on self-hosted ARC runners (lugus, `servers/lugus/infra/arc/` in the infra repo). Runner pods have no Docker daemon, so each consumer repo gets a scale set whose runner image carries the agent toolchain: `arc-runner-ai`, built in the infra repo (`runner-image-ai/`) from this repo's published agent image and rebuilt per agent release. The job runs `ai-runner` as the image's isolated `agent` user; every variable it needs must appear in the workflow's `--preserve-env` list. This repo's own image builds run on the `agent-for-gitlab-ci` set through the in-cluster buildkitd and need the `BUILDKIT_CLIENT_TLS_CACERT`, `BUILDKIT_CLIENT_TLS_CERT` and `BUILDKIT_CLIENT_TLS_KEY` repository secrets.
 
 Consumer repository secrets:
 
-- `AI_AGENT_IMAGE`: fork-built agent image.
 - `DEEPSEEK_API_KEY`: the DeepSeek key. `OPENCODE_MODEL` is not a secret here; the webhook app sends it in the dispatch payload.
 
 The GitHub CI DeepSeek key is the dedicated Bitwarden item "DeepSeek API Key - Github CI", mapped as `DEEPSEEK_GITHUB_CI_API_KEY` in `~/.config/setup-new-machines/bw-env.d/deepseek-github-ci.env`. It is distinct from the workstation DeepSeek key; do not share them. The webhook app never holds a provider key. To rotate, update the Bitwarden item, then pipe the value on stdin into every consumer repo:
