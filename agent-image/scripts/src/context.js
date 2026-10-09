@@ -34,6 +34,8 @@ export function buildContext() {
     email: process.env.AI_GITLAB_EMAIL,
     username: process.env.AI_GITLAB_USERNAME || process.env.AI_GITHUB_USERNAME,
     opencodeModel: process.env.OPENCODE_MODEL,
+    // Shared by reference with routed model contexts; one entry per opencode call.
+    usage: [],
     agentPrompt: combinedPrompt,
     gitlabToken: process.env.GITLAB_TOKEN,
     githubToken: process.env.GITHUB_TOKEN,

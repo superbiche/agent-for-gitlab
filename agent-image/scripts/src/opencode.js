@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { spawnSync, execFileSync } from "node:child_process";
+import { parseText, recordUsage } from "./usage.js";
 
 export async function runOpencode(context, prompt, options = {}) {
   logger.start("Running opencode via cli...");
@@ -30,8 +31,10 @@ export async function runOpencode(context, prompt, options = {}) {
   // --pure disables that plugin too; generic invocation keeps its previous mode.
   if (!risk) cliArgs.push("--pure");
 
-  if (risk || options.format) {
-    cliArgs.push("--format", risk ? "json" : options.format);
+  // Captured calls read JSON events: step_finish carries tokens and cost.
+  const json = risk || options.captureOutput;
+  if (json || options.format) {
+    cliArgs.push("--format", json ? "json" : options.format);
   }
 
   if (options.skipPermissions !== false) {
@@ -62,6 +65,7 @@ export async function runOpencode(context, prompt, options = {}) {
     }
 
     logger.success("opencode CLI completed");
+    if (json) recordUsage(context, options.label || "opencode", result.stdout || "");
     if (risk) {
       const evidence = parseRiskEvents(result.stdout || "", isolation.sourcePolicy, isolation.options.cwd);
       context.verifiedSourceReads = [...new Set([...(context.verifiedSourceReads || []), ...evidence.reads])];
@@ -72,7 +76,7 @@ export async function runOpencode(context, prompt, options = {}) {
       }
       return evidence.text;
     }
-    return result.stdout || "";
+    return json ? parseText(result.stdout || "") : result.stdout || "";
   } finally {
     if (risk) { rmSync(isolation.isolationRoot, {recursive:true, force:true}); if (!context.sourcePolicy) isolation.sourcePolicy.dispose?.(); }
   }

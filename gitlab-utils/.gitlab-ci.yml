@@ -7,6 +7,11 @@
 # - GITLAB_TOKEN: token name only; value must be masked and have API access
 # - OPENCODE_MODEL: provider/model, for example deepseek/<model-id>
 # - DEEPSEEK_API_KEY: required when OPENCODE_MODEL uses the deepseek provider
+#   (ANTHROPIC_API_KEY for anthropic/<model>, OPENROUTER_API_KEY for
+#   openrouter/<vendor>/<model>)
+#
+# Cost: the job log has one `Usage <label>:` line per model call and
+# ai-output.json carries usage.total (USD, opencode registry pricing).
 #
 # Review-mode variables for StudioNet:
 # - REVIEW_MODE=excessive
