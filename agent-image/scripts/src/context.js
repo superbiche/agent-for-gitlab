@@ -1,3 +1,5 @@
+import { DEFAULT_MAX_DIFF_TOKENS } from "./diff-compression.js";
+
 export function buildContext() {
   // Combine prompts: webhook (OPENCODE_AGENT_PROMPT) + pipeline (CUSTOM_AGENT_PROMPT)
   const webhookAppPrompt = process.env.OPENCODE_AGENT_PROMPT || "";
@@ -46,6 +48,10 @@ export function buildContext() {
     reviewScoring: normalizeChoice(process.env.REVIEW_SCORING, ["global", "agents"], reviewScoringDefault),
     reviewLang: normalizeChoice(process.env.REVIEW_LANG, ["en", "fr"], "en"),
     reviewAudience: normalizeChoice(process.env.REVIEW_AUDIENCE, ["team", "oss", "self"], "team"),
+    reviewMaxDiffTokens: positiveInt(process.env.REVIEW_MAX_DIFF_TOKENS, DEFAULT_MAX_DIFF_TOKENS),
+    reviewSmallModel: process.env.REVIEW_SMALL_MODEL || "",
+    reviewSmallMaxLines: positiveInt(process.env.REVIEW_SMALL_MAX_LINES, 100),
+    reviewSmallMaxFiles: positiveInt(process.env.REVIEW_SMALL_MAX_FILES, 5),
     dryRun: isTruthy(process.env.AI_DRY_RUN),
     dryRunFixtures: {
       mr: process.env.REVIEW_FIXTURE_MR,
@@ -63,4 +69,9 @@ function normalizeChoice(value, allowed, fallback) {
 
 function isTruthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function positiveInt(value, fallback) {
+  const number = Number.parseInt(String(value || ""), 10);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
 }

@@ -20,6 +20,8 @@
 #
 # Review-mode variables mirror gitlab-utils/.gitlab-ci.yml:
 # - REVIEW_MODE / REVIEW_PROFILE / REVIEW_SCORING / REVIEW_LANG / REVIEW_AUDIENCE
+# - REVIEW_MAX_DIFF_TOKENS / REVIEW_SMALL_MODEL / REVIEW_SMALL_MAX_LINES /
+#   REVIEW_SMALL_MAX_FILES (see README)
 
 name: ai-agent
 
@@ -63,6 +65,10 @@ jobs:
       REVIEW_SCORING: ${{ vars.REVIEW_SCORING }}
       REVIEW_LANG: ${{ vars.REVIEW_LANG }}
       REVIEW_AUDIENCE: ${{ vars.REVIEW_AUDIENCE }}
+      REVIEW_MAX_DIFF_TOKENS: ${{ vars.REVIEW_MAX_DIFF_TOKENS }}
+      REVIEW_SMALL_MODEL: ${{ vars.REVIEW_SMALL_MODEL }}
+      REVIEW_SMALL_MAX_LINES: ${{ vars.REVIEW_SMALL_MAX_LINES }}
+      REVIEW_SMALL_MAX_FILES: ${{ vars.REVIEW_SMALL_MAX_FILES }}
     steps:
       - name: Run AI agent
         shell: bash
@@ -78,4 +84,6 @@ jobs:
             -e GITHUB_TOKEN \
             -e REVIEW_MODE -e REVIEW_PROFILE -e REVIEW_SCORING \
             -e REVIEW_LANG -e REVIEW_AUDIENCE \
+            -e REVIEW_MAX_DIFF_TOKENS -e REVIEW_SMALL_MODEL \
+            -e REVIEW_SMALL_MAX_LINES -e REVIEW_SMALL_MAX_FILES \
             "$AI_AGENT_IMAGE" ai-runner

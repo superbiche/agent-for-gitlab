@@ -14,6 +14,11 @@
 # - REVIEW_SCORING=agents
 # - REVIEW_LANG=fr
 # - REVIEW_AUDIENCE=team
+#
+# Optional tuning (see README):
+# - REVIEW_MAX_DIFF_TOKENS: diff token budget before compression, default 64000
+# - REVIEW_SMALL_MODEL: provider/model for small MRs, plus its provider key
+# - REVIEW_SMALL_MAX_LINES / REVIEW_SMALL_MAX_FILES: defaults 100 / 5
 
 stages:
   - ai

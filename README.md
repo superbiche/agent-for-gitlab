@@ -66,6 +66,9 @@ Review variables:
 - `REVIEW_SCORING`: `global` or `agents`; default is `agents` when mode is `excessive`, otherwise `global`.
 - `REVIEW_LANG`: `en` or `fr`; default `en`.
 - `REVIEW_AUDIENCE`: `team`, `oss`, or `self`; default `team`.
+- `REVIEW_MAX_DIFF_TOKENS`: estimated token budget for diffs in review prompts; default `64000`. Larger MRs are compressed after [PR-Agent's strategy](https://docs.pr-agent.ai/core-abilities/compression_strategy/): deleted files and deletion-only hunks are dropped, patches are fitted by most common extension then size, and the rest is listed by name. The summary note says when this happened. The `risk` profile never compresses.
+- `REVIEW_SMALL_MODEL`: optional `provider/model` for small MRs; its provider key must also be set. Not applied to the `risk` profile.
+- `REVIEW_SMALL_MAX_LINES` / `REVIEW_SMALL_MAX_FILES`: small-MR limits on changed lines and files; defaults `100` and `5`.
 
 StudioNet target variables:
 

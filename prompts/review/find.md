@@ -11,6 +11,7 @@ The runner-provided JSON block below contains:
 - `scoring`: `global` or `agents`
 - `passes`: the selected pass letters
 - `mr`, `diffs`, and `notes`
+- `diff_compression`: present only for large MRs. `diffs` then omits deleted files and deletion-only hunks and may omit whole files; files under `other_modified_files`, `deleted_files` and `skipped_files` are listed by name only. Read them from the checked-out repository when they matter to a finding; never report an issue on a line you have not seen.
 - `focus`: optional user focus text after `review`
 - `outputPath`: where to write JSON
 
