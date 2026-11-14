@@ -23,7 +23,7 @@ export default function piReviewExtension(pi) {
 
   pi.on("tool_call", async event => {
     const decision = decideToolCall(policy, { toolName: event.toolName, input: event.input });
-    record({ type: "guard", toolCallId: event.toolCallId, tool: event.toolName, allow: decision.allow, effective: decision.effective ?? null });
+    record({ type: "guard", toolCallId: event.toolCallId, tool: event.toolName, allow: decision.allow, effective: decision.effective ?? null, range: decision.range ?? null });
     if (!decision.allow) return { block: true, reason: decision.reason };
     // Execute exactly the arguments that were checked.
     if (decision.input !== event.input) {
@@ -34,6 +34,7 @@ export default function piReviewExtension(pi) {
 
   pi.on("session_start", async () => {
     pi.setActiveTools([...RISK_TOOLS]);
-    record({ type: "ready", tools: pi.getActiveTools().slice().sort() });
+    // Names only, never values: the runner checks that no credential variable reached this process.
+    record({ type: "ready", tools: pi.getActiveTools().slice().sort(), envKeys: Object.keys(process.env).sort() });
   });
 }

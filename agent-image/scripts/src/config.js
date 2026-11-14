@@ -19,6 +19,7 @@ export function validateProviderKeys() {
 }
 
 export function validateConfig(context) {
+  if (!["opencode", "pi"].includes(context.harness)) throw new Error(`Unknown AGENT_HARNESS ${JSON.stringify(context.harness)}; use "opencode" or "pi".`);
   if (context.reviewProfile === "risk" && context.reviewScoring !== "agents") throw new Error("Risk reviews require independent scoring (REVIEW_SCORING=agents)");
   if (context.platform === "github") {
     if (!context.dryRun && !context.githubToken && !process.env.GITHUB_TOKEN) throw new Error("Missing GITHUB_TOKEN environment variable");

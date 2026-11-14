@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { spawnSync, execFileSync } from "node:child_process";
 import { parsePiText, parsePiRiskEvents, piRunFailure } from "./pi-events.js";
 import { recordUsage } from "./usage.js";
-import { RISK_TOOLS } from "./pi-guard.js";
+import { RISK_TOOLS, PI_ENV_EXTRAS } from "./pi-guard.js";
 
 // Pi runner: same contract as runOpencode (src/opencode.js), selected by AGENT_HARNESS=pi.
 // The Pi binary is the image's pinned install (`pi` on PATH, or PI_BIN).
@@ -55,8 +55,9 @@ export async function runPi(context, prompt, options = {}) {
     logger.success("pi CLI completed");
     if (risk) {
       const guardRecords = existsSync(isolation.guardPath) ? readFileSync(isolation.guardPath, "utf8").split("\n").filter(Boolean).map(JSON.parse) : [];
-      const evidence = parsePiRiskEvents(stdout, { ...isolation.sourcePolicy, workdir: isolation.options.cwd }, guardRecords, RISK_TOOLS);
+      const evidence = parsePiRiskEvents(stdout, { ...isolation.sourcePolicy, workdir: isolation.options.cwd }, guardRecords, RISK_TOOLS, [...Object.keys(isolation.options.env), ...PI_ENV_EXTRAS]);
       context.verifiedSourceReads = [...new Set([...(context.verifiedSourceReads || []), ...evidence.reads])];
+      context.partialSourceReads = [...new Set([...(context.partialSourceReads || []), ...evidence.partialReads])];
       context.sourceReadFailures = [...new Set([...(context.sourceReadFailures || []), ...evidence.failedReads])];
       if (existsSync(isolation.evidencePath)) {
         const records = readFileSync(isolation.evidencePath, "utf8").split("\n").filter(Boolean).map(JSON.parse);

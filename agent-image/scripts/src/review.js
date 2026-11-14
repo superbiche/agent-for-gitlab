@@ -67,6 +67,7 @@ export async function runReview(context) {
     }
     if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} TruffleHog-detected or structurally unsupported files.`);
     for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
+    for (const file of context.partialSourceReads || []) scoredFindings.limitations.push(`Tool-observed partial read, not the whole file: ${file}`);
     const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
     const filtered = filterFindings(scoredFindings, threshold);
     const platform = await loadAdapter(context);
@@ -509,6 +510,7 @@ function formatRiskSummary(context, mr, findings, postPlan, noteLinks) {
   for (const f of findings.issues) lines.push(`- **${f.severity_hint}: ${f.title}** — ${linkForFinding(f, postPlan, noteLinks)} (confidence ${f.confidence}/100)`);
   lines.push("", "### Inspected (model-reported)", "", ...findings.inspected.map(s => `- ${s}`));
   lines.push("", "### Tool-verified source reads", "", ...(context.verifiedSourceReads?.length ? context.verifiedSourceReads.map(s => `- ${s}`) : ["- Dry-run fixture; no live source reads."]));
+  if (context.partialSourceReads?.length) lines.push("", "### Tool-verified partial reads (not whole files)", "", ...context.partialSourceReads.map(s => `- ${s}`));
   if (context.investigationEvidence?.length) {
     lines.push("", "### Tool-verified investigation", "", ...context.investigationEvidence.map(e => e.type === "search"
       ? `- Source search ${JSON.stringify(e.text)} in ${JSON.stringify(e.path || "/")}: ${e.matches} matches, ${e.files_scanned} files inspected${e.truncated ? "; truncated, pagination required" : ""}.`

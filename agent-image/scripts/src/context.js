@@ -80,11 +80,11 @@ function positiveInt(value, fallback) {
   return Number.isInteger(number) && number > 0 ? number : fallback;
 }
 
-// An unknown value must not silently select the default harness: a workflow that
-// asked for Pi and mistyped it would otherwise run OpenCode without saying so.
+// The value is kept as given (lower-cased): validateConfig, which runs inside the runner's
+// error path, rejects an unknown one, so the failure reaches the merge request and the result
+// artifact instead of ending as a stack trace before either exists. An unknown value must
+// never select the default harness: a workflow that asked for Pi and mistyped it would
+// otherwise run OpenCode without saying so.
 function normalizeHarness(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (!normalized) return "opencode";
-  if (!["opencode", "pi"].includes(normalized)) throw new Error(`Unknown AGENT_HARNESS ${JSON.stringify(normalized)}; use "opencode" or "pi".`);
-  return normalized;
+  return String(value || "").trim().toLowerCase() || "opencode";
 }
