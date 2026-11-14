@@ -11,6 +11,7 @@ error, never a silent fall back to OpenCode.
 3. Re-express the model. `OPENCODE_MODEL` keeps its name and its `provider/model` shape, but the id must be one
    Pi knows (`pi --list-models`); Pi's catalogue differs from OpenCode's. Example: `deepseek/deepseek-v4-flash`
    becomes `deepseek/deepseek-flash`. A model Pi does not know fails before any model call.
+3b. When the model comes from the webhook (a pipeline variable that outranks project variables), set `PI_MODEL` as a project variable instead: with `AGENT_HARNESS=pi` it replaces `OPENCODE_MODEL`; OpenCode jobs ignore it. `REVIEW_SMALL_MODEL` is not translated.
 4. Keep the provider key variable (`DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...). Not carried:
    `Z_API_KEY` (a zai provider needs a `models.json` entry), `AZURE_RESOURCE_NAME` (Pi's azure provider reads
    `AZURE_OPENAI_*`), Bedrock profiles. These stay on OpenCode.
@@ -40,7 +41,7 @@ mechanism; `verification/pi-mutations.mjs` removes each one and the Pi tests mus
 | no CI credential reachable | minimal process environment (`piRiskInvocation`: PATH, isolated HOME, the one model key, Pi switches); no shell to dump it; `/proc/self/environ` is outside the inventory |
 | repository cannot configure or extend the agent | work directory outside any Git worktree, `--no-extensions` (+ explicit `-e` for the image's own extension), `--no-approve`, `--no-context-files`, `--no-skills`, `--no-prompt-templates`, `--no-mcp` |
 | nothing fetched or phoned home at job time | `--offline`, `PI_OFFLINE`, `PI_TELEMETRY=0`, `PI_SKIP_VERSION_CHECK`; Pi is installed at build time from a locked, integrity-checked install |
-| the path the guard approves is the path Pi opens | the guard reproduces Pi 1.5.2's path rules (`@`, `~`, `file://`, Unicode spaces, a different rule for the working directory, the four fallback spellings of `read`), refuses every spelling Pi would rewrite, judges every spelling Pi may open, and hands Pi only a canonical path Pi leaves unchanged; `test/pi-path-rules.test.js` compares the reproduction with the installed Pi's own functions (a Pi bump that changes a rule fails it) |
+| the path the guard approves is the path Pi opens | the guard reproduces Pi 1.5.2's path rules (`@`, `~`, `file://`, Unicode spaces, a different rule for the working directory, the four fallback spellings of `read`), refuses every spelling Pi would rewrite, judges every spelling Pi may open, and hands Pi only a canonical path Pi leaves unchanged; `test/pi-path-rules.test.js` compares the reproduction with the installed Pi's own functions (a Pi bump that changes a rule fails it); the Dockerfile runs it, and `test/pi-native-read.test.js`, after installing Pi with `REQUIRE_PI_DIST=1`, so such an image cannot be built |
 | a cut-off answer is not a review | only `stopReason: stop` completes a run; `length`, `toolUse` and unknown states fail it, whatever files were written before |
 | a run without its guard is not accepted | the runner requires the extension's `ready` record with exactly the expected tool set, and a guard decision for every executed call |
 | filename discovery cannot reveal files outside the inventory | image-owned `glob` over the inventory (Pi's builtin `find` needs an `fd` binary and walks anywhere) |

@@ -48,6 +48,12 @@ COPY agent-image/scripts/ /opt/agent/
 COPY prompts/ /opt/agent/prompts/
 RUN npm ci --omit=dev
 
+# Build gate: the guard's reproduction of Pi's path rules and the delivered-lines accounting are
+# compared with the Pi installed above. REQUIRE_PI_DIST=1 turns a missing Pi into a failure, so an
+# image whose guard and Pi disagree (a Pi bump that changed a rule, a wrong pin) cannot be built.
+RUN PI_DIST=/opt/pi-bootstrap/node_modules/@earendil-works/pi-coding-agent/dist REQUIRE_PI_DIST=1 \
+	node --test test/pi-path-rules.test.js test/pi-native-read.test.js
+
 # Node ESM support and convenience launcher
 RUN printf "#!/usr/bin/env sh\nnode /opt/agent/ai-runner.js \"$@\"\n" > /usr/local/bin/ai-runner \
 	&& chmod +x /usr/local/bin/ai-runner

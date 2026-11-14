@@ -35,7 +35,10 @@ export function buildContext() {
     username: process.env.AI_GITLAB_USERNAME || process.env.AI_GITHUB_USERNAME,
     // Agent harness behind the runner: "opencode" (default) or "pi". The model variable keeps its name.
     harness: normalizeHarness(process.env.AGENT_HARNESS),
-    opencodeModel: process.env.OPENCODE_MODEL,
+    // The webhook sets OPENCODE_MODEL as a pipeline variable, which outranks project variables. For Pi
+    // the model id differs (Pi's catalogue), so PI_MODEL, which the webhook never sends, overrides it
+    // when AGENT_HARNESS=pi. OpenCode jobs ignore it.
+    opencodeModel: normalizeHarness(process.env.AGENT_HARNESS) === "pi" && process.env.PI_MODEL ? process.env.PI_MODEL : process.env.OPENCODE_MODEL,
     // Shared by reference with routed model contexts; one entry per opencode call.
     usage: [],
     agentPrompt: combinedPrompt,

@@ -9,11 +9,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 import { piResolve, piRewrites, piReadCandidates, piNormalize } from "../src/pi-guard.js";
-import { piDist, piDistVersion } from "../verification/pi-dist.js";
+import { piDistOrRequire, piDistVersion } from "../verification/pi-dist.js";
 
-const dist = piDist();
-const missing = !dist && process.env.REQUIRE_PI_DIST !== "1" ? "Pi is not installed here (set PI_DIST)" : false;
-if (!dist && !missing) throw new Error("REQUIRE_PI_DIST=1 but no installed Pi was found");
+const { dist, skip: missing } = piDistOrRequire();
 const piUtils = dist ? await import(pathToFileURL(join(dist, "core/tools/path-utils.js")).href) : null;
 
 export const SPELLINGS = [

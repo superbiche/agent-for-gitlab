@@ -92,13 +92,14 @@ const mutations = [
   ["harness-default", "src/context.js", '|| "opencode";', '|| "pi";'],
   ["harness-typo-validate", "src/config.js", "if (![\"opencode\", \"pi\"].includes(context.harness)) throw", "if (false) throw"],
   ["harness-typo-dispatch", "src/harness.js", "context.harness === \"opencode\" || context.harness === undefined", "true"],
+  ["pi-model-override", "src/context.js", '=== "pi" && process.env.PI_MODEL ?', "=== \"opencode\" && process.env.PI_MODEL ?"],
   ["model-known", "src/pi.js", "if (!listed.includes(model)) throw", "if (false) throw"],
 ];
 
 // Control: the unmutated copy must pass, or "killed" would only mean "the copy is broken".
 {
   const copy = makeCopy();
-  const baseline = spawnSync(process.execPath, ["--test", "test/pi-runner.test.js", "test/pi-path-rules.test.js"], { cwd: work(copy), encoding: "utf8" });
+  const baseline = spawnSync(process.execPath, ["--test", "test/pi-runner.test.js", "test/pi-path-rules.test.js", "test/pi-native-read.test.js"], { cwd: work(copy), encoding: "utf8" });
   rmSync(copy, { recursive: true, force: true });
   if (baseline.status !== 0) { console.log("baseline copy fails its own tests; mutation results would mean nothing"); process.exit(2); }
   console.log("baseline  unmutated copy passes");
@@ -110,7 +111,7 @@ for (const [name, file, find, replace] of mutations) {
     const path = join(work(copy), file), text = readFileSync(path, "utf8");
     if (!text.includes(find)) { console.log(`STALE    ${name}: pattern not found in ${file}`); survivors++; continue; }
     writeFileSync(path, text.replace(find, replace));
-    const result = spawnSync(process.execPath, ["--test", "test/pi-runner.test.js", "test/pi-path-rules.test.js"], { cwd: work(copy), encoding: "utf8" });
+    const result = spawnSync(process.execPath, ["--test", "test/pi-runner.test.js", "test/pi-path-rules.test.js", "test/pi-native-read.test.js"], { cwd: work(copy), encoding: "utf8" });
     const killed = result.status !== 0;
     if (!killed) survivors++;
     console.log(`${killed ? "killed  " : "SURVIVED"} ${name}`);
