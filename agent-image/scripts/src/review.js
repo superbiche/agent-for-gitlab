@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
 import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-context.js";
-import { runOpencode } from "./opencode.js";
+import { runAgent } from "./harness.js";
 import { fetchCiEvidence } from "./ci-evidence.js";
 import { loadAdapter, selectPlatform } from "./platforms/interface.js";
 import { causeSummary } from "./platforms/http.js";
@@ -153,7 +153,7 @@ async function scoreIssues(context, reviewData, findings) {
 
 async function runJsonOpencode(context, prompt, filePath, label) {
   rmSync(filePath, { force: true });
-  let output = await runOpencode(context, prompt, { captureOutput: true, label });
+  let output = await runAgent(context, prompt, { captureOutput: true, label });
   try {
     return parseModelJson(output, filePath, label);
   } catch (error) {
@@ -161,7 +161,7 @@ async function runJsonOpencode(context, prompt, filePath, label) {
   }
 
   rmSync(filePath, { force: true });
-  output = await runOpencode(
+  output = await runAgent(
     context,
     context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\n\n---\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
     { captureOutput: true, label: `${label}-retry` },

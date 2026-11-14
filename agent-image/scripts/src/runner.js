@@ -4,7 +4,7 @@ import { loadAdapter, selectPlatform } from "./platforms/interface.js";
 import { causeSummary } from "./platforms/http.js";
 import { isInsideGitRepo, setupLocalRepository, ensureBranch } from "./git.js";
 import { validateProviderKeys, validateConfig } from "./config.js";
-import { runOpencode } from "./opencode.js";
+import { runAgent } from "./harness.js";
 import { writeOutput } from "./output.js";
 import { summarizeUsage } from "./usage.js";
 import { gitSetup } from "./git.js";
@@ -56,7 +56,7 @@ export async function run() {
       const reviewResult = await runReview(context);
       writeOutput(true, reviewResult);
     } else {
-      const output = await runOpencode(context, context.prompt, { captureOutput: true, label: "prompt" });
+      const output = await runAgent(context, context.prompt, { captureOutput: true, label: "prompt" });
       const message = output.trim() || "opencode completed without a textual response.";
       await platform.postComment(context, message);
       writeOutput(true, {

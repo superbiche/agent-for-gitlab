@@ -33,6 +33,8 @@ export function buildContext() {
     branch: process.env.AI_BRANCH,
     email: process.env.AI_GITLAB_EMAIL,
     username: process.env.AI_GITLAB_USERNAME || process.env.AI_GITHUB_USERNAME,
+    // Agent harness behind the runner: "opencode" (default) or "pi". The model variable keeps its name.
+    harness: normalizeHarness(process.env.AGENT_HARNESS),
     opencodeModel: process.env.OPENCODE_MODEL,
     // Shared by reference with routed model contexts; one entry per opencode call.
     usage: [],
@@ -76,4 +78,13 @@ function isTruthy(value) {
 function positiveInt(value, fallback) {
   const number = Number.parseInt(String(value || ""), 10);
   return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+// An unknown value must not silently select the default harness: a workflow that
+// asked for Pi and mistyped it would otherwise run OpenCode without saying so.
+function normalizeHarness(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "opencode";
+  if (!["opencode", "pi"].includes(normalized)) throw new Error(`Unknown AGENT_HARNESS ${JSON.stringify(normalized)}; use "opencode" or "pi".`);
+  return normalized;
 }

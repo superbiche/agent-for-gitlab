@@ -32,6 +32,16 @@ RUN npm install -g "opencode-ai@${OPENCODE_AI_VERSION}"
 COPY agent-image/opencode-bootstrap/ /opt/opencode-bootstrap/
 RUN cd /opt/opencode-bootstrap && npm ci --ignore-scripts --omit=dev
 
+# Pi (alternative harness, selected per job with AGENT_HARNESS=pi; OpenCode stays the
+# default). Version and integrity are pinned by agent-image/pi-bootstrap/package-lock.json;
+# nothing is fetched at job time. Pi requires Node >= 22.19, checked here so a floating
+# base image cannot silently ship an unsupported runtime.
+COPY agent-image/pi-bootstrap/ /opt/pi-bootstrap/
+RUN node -e 'const [a,b]=process.versions.node.split(".").map(Number); if (a<22||(a===22&&b<19)) { console.error("Pi needs Node >= 22.19, got "+process.version); process.exit(1); }' \
+	&& cd /opt/pi-bootstrap && npm ci --ignore-scripts --omit=dev \
+	&& ln -s /opt/pi-bootstrap/node_modules/.bin/pi /usr/local/bin/pi \
+	&& test "$(pi --version)" = "1.5.2"
+
 # Copy runner sources
 WORKDIR /opt/agent
 COPY agent-image/scripts/ /opt/agent/

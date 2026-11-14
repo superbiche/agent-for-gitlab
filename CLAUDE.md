@@ -36,6 +36,7 @@ Generic `@ai <anything else>` still runs opencode once and posts captured stdout
 - `OPENCODE_AGENT_PROMPT`
 - `CUSTOM_AGENT_PROMPT`
 - `OPENCODE_MODEL`
+- `AGENT_HARNESS`: `opencode` (default) or `pi`; see `docs/pi-runner.md`. `PI_BIN` overrides the `pi` binary.
 - `GITLAB_TOKEN`
 - `CI_SERVER_HOST`
 - `CI_SERVER_URL`
