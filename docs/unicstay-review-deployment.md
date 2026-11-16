@@ -4,7 +4,8 @@ This deployment adds an on-demand second opinion for risky agent-authored MRs. I
 
 ## Review settings
 
-- Model: `deepseek/deepseek-v4-flash`; existing `DEEPSEEK_API_KEY`.
+- Harness: Pi since 2026-11-15, selected by the group variables `AGENT_HARNESS=pi` and `PI_MODEL=deepseek/deepseek-flash` (the webhook's `OPENCODE_MODEL` pipeline variable outranks group and project variables, and Pi's catalogue names the model differently). What each harness guarantees, and how each denial is enforced on Pi, is in [the Pi runner contract](pi-runner.md). The sections below that name OpenCode describe the OpenCode harness, which stays in the image: unset `AGENT_HARNESS` to pin back. OpenCode runs on this deployment failed at start in November 2026 (exit 1 before the first model call, on both the previous and the current image); do not pin back without a passing review on a controlled MR.
+- Model: `deepseek/deepseek-flash` on Pi (`deepseek/deepseek-v4-flash` on OpenCode); existing `DEEPSEEK_API_KEY`.
 - `REVIEW_PROFILE=risk`: contracts/callers, security, state/money, failure handling, tests, rollout and available history. Dedicated FIND/SCORE prompts; English, self audience, no teaching or optional style suggestions.
 - `REVIEW_MODE=loose`: historical name meaning confidence >=80. Depth comes from profile, not this name. StudioNet's excessive mode admits >=40 and remains available with its original prompts.
 - `REVIEW_SCORING=agents`: a separate model invocation verifies candidates; this is not a claim of model-family independence.

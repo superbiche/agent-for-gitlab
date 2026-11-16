@@ -18,7 +18,12 @@ runner-tests:
   before_script:
     - apt-get update -qq
     - apt-get install -y --no-install-recommends git
+  variables:
+    # Compare the guard with the pinned Pi: an absent or disagreeing Pi fails the job (the image build repeats this).
+    REQUIRE_PI_DIST: "1"
+    PI_DIST: "$CI_PROJECT_DIR/agent-image/pi-bootstrap/node_modules/@earendil-works/pi-coding-agent/dist"
   script:
+    - (cd agent-image/pi-bootstrap && npm ci --ignore-scripts --omit=dev)
     - cd agent-image/scripts
     - npm test
     - AI_DRY_RUN=1 DIRECT_PROMPT=review AI_RESOURCE_TYPE=mr AI_RESOURCE_ID=7 node ai-runner.js

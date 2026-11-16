@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import logger from "./logger.js";
 import { riskSourcePolicy, validateRiskContext, promptBundle } from "./risk-context.js";
-import { runOpencode } from "./opencode.js";
+import { runAgent } from "./harness.js";
 import { fetchCiEvidence } from "./ci-evidence.js";
 import { loadAdapter, selectPlatform } from "./platforms/interface.js";
 import { causeSummary } from "./platforms/http.js";
@@ -67,6 +67,7 @@ export async function runReview(context) {
     }
     if (context.sourcePolicy?.excluded.length) scoredFindings.limitations.push(`Source inspection excludes ${context.sourcePolicy.excluded.length} TruffleHog-detected or structurally unsupported files.`);
     for (const file of context.sourceReadFailures || []) scoredFindings.limitations.push(`Tool-observed unsuccessful read: ${file}`);
+    for (const file of context.partialSourceReads || []) scoredFindings.limitations.push(`Tool-observed partial read, not the whole file: ${file}`);
     const threshold = THRESHOLDS[context.reviewMode] || THRESHOLDS.strict;
     const filtered = filterFindings(scoredFindings, threshold);
     const platform = await loadAdapter(context);
@@ -153,7 +154,7 @@ async function scoreIssues(context, reviewData, findings) {
 
 async function runJsonOpencode(context, prompt, filePath, label) {
   rmSync(filePath, { force: true });
-  let output = await runOpencode(context, prompt, { captureOutput: true, label });
+  let output = await runAgent(context, prompt, { captureOutput: true, label });
   try {
     return parseModelJson(output, filePath, label);
   } catch (error) {
@@ -161,7 +162,7 @@ async function runJsonOpencode(context, prompt, filePath, label) {
   }
 
   rmSync(filePath, { force: true });
-  output = await runOpencode(
+  output = await runAgent(
     context,
     context.reviewProfile === "risk" ? promptBundle([...prompt.parts, {kind:"prompt", text:`\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`}]) : `${prompt}\n\n---\nYour previous ${label} output was malformed. Return only valid JSON matching the requested schema. Also write the same JSON to ${filePath}.`,
     { captureOutput: true, label: `${label}-retry` },
@@ -509,6 +510,7 @@ function formatRiskSummary(context, mr, findings, postPlan, noteLinks) {
   for (const f of findings.issues) lines.push(`- **${f.severity_hint}: ${f.title}** — ${linkForFinding(f, postPlan, noteLinks)} (confidence ${f.confidence}/100)`);
   lines.push("", "### Inspected (model-reported)", "", ...findings.inspected.map(s => `- ${s}`));
   lines.push("", "### Tool-verified source reads", "", ...(context.verifiedSourceReads?.length ? context.verifiedSourceReads.map(s => `- ${s}`) : ["- Dry-run fixture; no live source reads."]));
+  if (context.partialSourceReads?.length) lines.push("", "### Tool-verified partial reads (not whole files)", "", ...context.partialSourceReads.map(s => `- ${s}`));
   if (context.investigationEvidence?.length) {
     lines.push("", "### Tool-verified investigation", "", ...context.investigationEvidence.map(e => e.type === "search"
       ? `- Source search ${JSON.stringify(e.text)} in ${JSON.stringify(e.path || "/")}: ${e.matches} matches, ${e.files_scanned} files inspected${e.truncated ? "; truncated, pagination required" : ""}.`

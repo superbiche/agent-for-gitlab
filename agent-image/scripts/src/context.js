@@ -33,7 +33,12 @@ export function buildContext() {
     branch: process.env.AI_BRANCH,
     email: process.env.AI_GITLAB_EMAIL,
     username: process.env.AI_GITLAB_USERNAME || process.env.AI_GITHUB_USERNAME,
-    opencodeModel: process.env.OPENCODE_MODEL,
+    // Agent harness behind the runner: "opencode" (default) or "pi". The model variable keeps its name.
+    harness: normalizeHarness(process.env.AGENT_HARNESS),
+    // The webhook sets OPENCODE_MODEL as a pipeline variable, which outranks project variables. For Pi
+    // the model id differs (Pi's catalogue), so PI_MODEL, which the webhook never sends, overrides it
+    // when AGENT_HARNESS=pi. OpenCode jobs ignore it.
+    opencodeModel: normalizeHarness(process.env.AGENT_HARNESS) === "pi" && process.env.PI_MODEL ? process.env.PI_MODEL : process.env.OPENCODE_MODEL,
     // Shared by reference with routed model contexts; one entry per opencode call.
     usage: [],
     agentPrompt: combinedPrompt,
@@ -76,4 +81,13 @@ function isTruthy(value) {
 function positiveInt(value, fallback) {
   const number = Number.parseInt(String(value || ""), 10);
   return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+// The value is kept as given (lower-cased): validateConfig, which runs inside the runner's
+// error path, rejects an unknown one, so the failure reaches the merge request and the result
+// artifact instead of ending as a stack trace before either exists. An unknown value must
+// never select the default harness: a workflow that asked for Pi and mistyped it would
+// otherwise run OpenCode without saying so.
+function normalizeHarness(value) {
+  return String(value || "").trim().toLowerCase() || "opencode";
 }

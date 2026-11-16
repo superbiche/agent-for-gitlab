@@ -1,4 +1,5 @@
 import logger from "./logger.js";
+import { parsePiUsage } from "./pi-events.js";
 
 // Sums opencode `--format json` step_finish events (cost in USD, as priced by
 // opencode's model registry) for one CLI call.
@@ -36,8 +37,8 @@ export function parseText(output = "") {
 
 // complete=false marks a failed call: only its finished steps are counted, and a
 // step interrupted mid-request is not in the stream at all, so totals are a floor.
-export function recordUsage(context, label, output, { complete = true } = {}) {
-  const usage = { label, model: context.opencodeModel, complete, ...parseUsage(output) };
+export function recordUsage(context, label, output, { complete = true, harness = "opencode" } = {}) {
+  const usage = { label, model: context.opencodeModel, complete, ...(harness === "pi" ? parsePiUsage(output) : parseUsage(output)) };
   if (Array.isArray(context.usage)) context.usage.push(usage);
   logger.info(`Usage ${label}${complete ? "" : " (failed call, lower bound)"}: model=${usage.model} cost=$${usage.cost.toFixed(4)} input=${usage.input} output=${usage.output} reasoning=${usage.reasoning} cache_read=${usage.cache_read} cache_write=${usage.cache_write} steps=${usage.steps}`);
   return usage;
