@@ -1,21 +1,38 @@
 import { test, expect } from "bun:test";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-process.env.GITHUB_WEBHOOK_SECRET = "gh-secret";
-process.env.GITHUB_TOKEN = "gh-token";
+// The lugus shape: both credentials as files (OpenBao lane A), App ids in env.
+const dir = mkdtempSync(join(tmpdir(), "gh-routing-"));
+const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+writeFileSync(join(dir, "GITHUB_APP_PRIVATE_KEY"), privateKey.export({ type: "pkcs1", format: "pem" }));
+writeFileSync(join(dir, "GITHUB_WEBHOOK_SECRET"), "gh-secret");
+process.env.GITHUB_WEBHOOK_SECRET_FILE = join(dir, "GITHUB_WEBHOOK_SECRET");
+process.env.GITHUB_APP_PRIVATE_KEY_FILE = join(dir, "GITHUB_APP_PRIVATE_KEY");
+process.env.GITHUB_APP_CLIENT_ID = "Iv23test";
+process.env.GITHUB_APP_INSTALLATION_ID = "123";
 process.env.WEBHOOK_SECRET = "gl-secret";
 process.env.RATE_LIMITING_ENABLED = "false";
 process.env.AI_GITHUB_USERNAME = "ai-bot";
 process.env.LOG_LEVEL = "error";
 process.env.REVIEW_ONLY = "true";
 
-const { default: app } = await import("../src/index");
+// bun test shares one module cache across files: a query gives this file its own
+// server instance, started with the environment above.
+const { default: app } = await import("../src/index.ts?github-routing");
 
 function signed(body: unknown): { raw: string; sig: string } {
   const raw = JSON.stringify(body);
   const sig = "sha256=" + createHmac("sha256", "gh-secret").update(raw).digest("hex");
   return { raw, sig };
 }
+
+const tokenResponse = () =>
+  new Response(JSON.stringify({ token: "ghs_installation", expires_at: new Date(Date.now() + 3600_000).toISOString() }), {
+    status: 201,
+  });
 
 const comment = (text: string, pr = true) => ({
   action: "created",
@@ -57,9 +74,12 @@ test("dispatches review with platform variables and reacts", async () => {
   const original = globalThis.fetch;
   let dispatch: { url: string; body: Record<string, unknown> } | undefined;
   let reaction: string | undefined;
+  let auth: string | undefined;
   globalThis.fetch = (async (input: unknown, init?: { body?: string }) => {
     const url = String(input);
+    if (url.endsWith("/app/installations/123/access_tokens")) return tokenResponse();
     if (url.endsWith("/dispatches")) {
+      auth = (init as { headers?: Record<string, string> })?.headers?.Authorization;
       dispatch = { url, body: JSON.parse(init?.body || "{}") };
       return new Response("", { status: 204 });
     }
@@ -81,6 +101,8 @@ test("dispatches review with platform variables and reacts", async () => {
     expect(payload.AI_PROJECT_PATH).toBe("owner/repo");
     expect(payload.DIRECT_PROMPT).toBe("review the diff");
     expect(reaction).toContain("/repos/owner/repo/issues/comments/55/reactions");
+    // The dispatch runs as the App installation, never with a personal token.
+    expect(auth).toBe("Bearer ghs_installation");
   } finally {
     globalThis.fetch = original;
   }
@@ -91,6 +113,7 @@ test("reacts to inline review comments without posting a comment", async () => {
   const calls: string[] = [];
   globalThis.fetch = (async (input: unknown) => {
     const url = String(input);
+    if (url.endsWith("/access_tokens")) return tokenResponse();
     calls.push(url);
     if (url.endsWith("/dispatches")) return new Response("", { status: 204 });
     if (url.includes("/reactions")) return new Response(JSON.stringify({ id: 1 }), { status: 201 });

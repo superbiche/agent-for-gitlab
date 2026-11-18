@@ -9,11 +9,41 @@ import {
   addReactionToNote,
   getDiscussionThread,
 } from "./gitlab";
-import { dispatchAgentRun, addReaction as addGitHubReaction } from "./github";
+import {
+  dispatchAgentRun,
+  addReaction as addGitHubReaction,
+  configureGitHubApp,
+  loadGitHubAppConfig,
+} from "./github";
 import { limitByUser } from "./limiter";
 import { logger } from "./logger";
 import type { WebhookPayload } from "./types";
 import { isReviewEnrolled, postEnrollmentRefusal } from "./review-enrollment";
+import { ConfigError, EX_CONFIG, readSecret } from "./secrets";
+
+// GitHub lane credentials, read once at startup: the HMAC secret and the
+// GitHub App (each from <NAME>_FILE or <NAME>). A missing, empty or invalid
+// credential stops the server with EX_CONFIG before it serves anything.
+let githubWebhookSecret: string | undefined;
+try {
+  githubWebhookSecret = readSecret("GITHUB_WEBHOOK_SECRET") ?? (process.env.WEBHOOK_SECRET || undefined);
+  const githubApp = loadGitHubAppConfig();
+  // An App without a webhook secret would reject every GitHub delivery (401): refuse to start instead.
+  if (githubApp && !githubWebhookSecret) {
+    throw new ConfigError("the GitHub App is configured but GITHUB_WEBHOOK_SECRET_FILE (or GITHUB_WEBHOOK_SECRET) is not set");
+  }
+  configureGitHubApp(githubApp);
+  if (githubApp) {
+    logger.info("GitHub lane authenticates as a GitHub App installation", {
+      clientId: githubApp.clientId,
+      installationId: githubApp.installationId,
+    });
+  }
+} catch (error) {
+  if (!(error instanceof ConfigError)) throw error;
+  logger.error("Credential configuration refused; not starting", { reason: error.message });
+  process.exit(EX_CONFIG);
+}
 
 const app = new Hono();
 
@@ -455,7 +485,7 @@ app.post("/webhook/github", async (c) => {
 });
 
 function verifyGitHubSignature(rawBody: string, signature: string): boolean {
-  const secret = process.env.GITHUB_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET;
+  const secret = githubWebhookSecret;
   if (!secret) return false;
   if (!signature.startsWith("sha256=")) return false;
   const expected = signature.slice("sha256=".length);
