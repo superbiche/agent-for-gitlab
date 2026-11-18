@@ -28,6 +28,10 @@ let githubWebhookSecret: string | undefined;
 try {
   githubWebhookSecret = readSecret("GITHUB_WEBHOOK_SECRET") ?? (process.env.WEBHOOK_SECRET || undefined);
   const githubApp = loadGitHubAppConfig();
+  // An App without a webhook secret would reject every GitHub delivery (401): refuse to start instead.
+  if (githubApp && !githubWebhookSecret) {
+    throw new ConfigError("the GitHub App is configured but GITHUB_WEBHOOK_SECRET_FILE (or GITHUB_WEBHOOK_SECRET) is not set");
+  }
   configureGitHubApp(githubApp);
   if (githubApp) {
     logger.info("GitHub lane authenticates as a GitHub App installation", {

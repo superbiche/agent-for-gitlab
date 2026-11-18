@@ -95,7 +95,7 @@ Webhook app settings for the GitHub lane:
 - `GITHUB_APP_PRIVATE_KEY_FILE`: path to the App's private key PEM. `GITHUB_APP_PRIVATE_KEY` may hold the PEM itself instead; the file form keeps the key out of the process environment.
 - `GITHUB_WEBHOOK_SECRET_FILE` or `GITHUB_WEBHOOK_SECRET`: the repository webhook's HMAC secret (`x-hub-signature-256`). Without either, the GitLab `WEBHOOK_SECRET` is used.
 
-Each credential comes from `<NAME>_FILE` or `<NAME>`, never both. The app reads them once at startup and refuses to start, with exit status 78, when both forms are set, when a file is missing, unreadable or empty, when only part of the App settings is present, or when the key is not an RSA private key. After a key rotation, restart the deployment.
+Each credential comes from `<NAME>_FILE` or `<NAME>`, never both. The app reads them once at startup and refuses to start, with exit status 78, when both forms are set, when a file is missing, unreadable or empty, when only part of the App settings is present, when the key is not an RSA private key, or when the App is configured without a webhook secret. After a key rotation, restart the deployment.
 
 Consumer repository secrets:
 

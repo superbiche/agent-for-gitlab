@@ -171,6 +171,8 @@ test("server refuses to start with EX_CONFIG (78) on a missing or empty credenti
       GITHUB_APP_INSTALLATION_ID: "42",
       GITHUB_APP_PRIVATE_KEY_FILE: join(dir, "absent.pem"),
     },
+    // A complete App with no webhook secret at all (no file, no env, no GitLab fallback).
+    { GITHUB_APP_CLIENT_ID: "Iv23x", GITHUB_APP_INSTALLATION_ID: "42", GITHUB_APP_PRIVATE_KEY_FILE: keyFile },
   ];
   for (const extra of cases) {
     const run = Bun.spawnSync({
