@@ -86,6 +86,17 @@ The same webhook app also serves `/webhook/github`: an `@ai review` comment on a
 
 Jobs run on self-hosted ARC runners (lugus, `servers/lugus/infra/arc/` in the infra repo). Runner pods have no Docker daemon, so each consumer repo gets a scale set whose runner image carries the agent toolchain: `arc-runner-ai`, built in the infra repo (`runner-image-ai/`) from this repo's published agent image and rebuilt per agent release. The job runs `ai-runner` as the image's isolated `agent` user; every variable it needs must appear in the workflow's `--preserve-env` list. This repo's own image builds run on the `agent-for-gitlab-ci` set through the in-cluster buildkitd and need the `BUILDKIT_CLIENT_TLS_CACERT`, `BUILDKIT_CLIENT_TLS_CERT` and `BUILDKIT_CLIENT_TLS_KEY` repository secrets.
 
+The webhook app acts on GitHub as a GitHub App installation, so the dispatch and the 👍 reaction appear as `<app>[bot]` and no personal token is involved. The App needs repository permissions Contents (write, for `repository_dispatch`), Issues (write) and Pull requests (write, for the reactions), plus the mandatory Metadata (read); install it on the consumer repositories only. The app signs a short-lived RS256 JWT with the App's private key, exchanges it for an installation token (`POST /app/installations/{id}/access_tokens`), and caches that token until five minutes before its one-hour expiry. Installation tokens have no refresh token: the app mints a new one, and a 401 from GitHub drops the cached token and retries once. The reference deployment is `superbiche-ai` on lugus (infra `servers/lugus/apps/ai-webhook/manifests.yaml`).
+
+Webhook app settings for the GitHub lane:
+
+- `GITHUB_APP_CLIENT_ID`: the App's client ID (the JWT issuer; the numeric App ID also works). Not a secret.
+- `GITHUB_APP_INSTALLATION_ID`: the numeric installation ID (the number at the end of `https://github.com/settings/installations/<id>`). Not a secret.
+- `GITHUB_APP_PRIVATE_KEY_FILE`: path to the App's private key PEM. `GITHUB_APP_PRIVATE_KEY` may hold the PEM itself instead; the file form keeps the key out of the process environment.
+- `GITHUB_WEBHOOK_SECRET_FILE` or `GITHUB_WEBHOOK_SECRET`: the repository webhook's HMAC secret (`x-hub-signature-256`). Without either, the GitLab `WEBHOOK_SECRET` is used.
+
+Each credential comes from `<NAME>_FILE` or `<NAME>`, never both. The app reads them once at startup and refuses to start, with exit status 78, when both forms are set, when a file is missing, unreadable or empty, when only part of the App settings is present, or when the key is not an RSA private key. After a key rotation, restart the deployment.
+
 Consumer repository secrets:
 
 - `DEEPSEEK_API_KEY`: the DeepSeek key. `OPENCODE_MODEL` is not a secret here; the webhook app sends it in the dispatch payload.
